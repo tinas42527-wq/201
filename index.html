@@ -2,12 +2,12 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <title>201座位表 (自動存檔版)</title>
+  <title>201座位表 (支援圖片匯出)</title>
   <style>
     body { font-family: 'Segoe UI', Arial, sans-serif; background: #0f172a; color: #f8fafc; text-align: center; padding: 20px; margin: 0; }
     h1 { font-size: 2.2rem; color: #38bdf8; margin-bottom: 5px; text-shadow: 0 0 10px rgba(56, 189, 248, 0.5); }
     
-    .panel { background: #1e293b; border: 2px solid #334155; max-width: 980px; margin: 0 auto 20px; padding: 15px; border-radius: 12px; display: flex; justify-content: space-around; align-items: center; flex-wrap: wrap; gap: 10px; }
+    .panel { background: #1e293b; border: 2px solid #334155; max-width: 980px; margin: 0 auto 20px; padding: 15px; border-radius: 12px; display: flex; justify-content: space-around; align-items: center; flex-wrap: wrap; gap: 8px; }
     
     .starter-picker { display: flex; align-items: center; gap: 6px; background: #0f172a; padding: 6px 12px; border-radius: 8px; border: 1px solid #475569; }
     select, input, textarea { font-size: 15px; padding: 6px 10px; border-radius: 6px; border: 1px solid #475569; background: #1e293b; color: white; }
@@ -21,10 +21,18 @@
     button.draw-btn:disabled { background: #475569; box-shadow: none; cursor: not-allowed; }
     button.edit-btn { background: #eab308; color: #0f172a; }
     button.export-btn { background: #06b6d4; color: #0f172a; }
+    button.image-btn { background: #ec4899; color: white; }
     button.name-btn { background: #a855f7; color: white; }
     button.reset-btn { background: #ef4444; color: white; }
 
-    .grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; max-width: 980px; margin: 0 auto 20px; }
+    /* 需被截圖轉換的班級座位區域 */
+    #exportArea { background: #0f172a; padding: 15px; border-radius: 12px; max-width: 980px; margin: 0 auto; }
+
+    .classroom-front { max-width: 980px; margin: 0 auto 15px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+    .blackboard { background: #14532d; border: 4px solid #166534; color: #f0fdf4; width: 70%; padding: 10px; border-radius: 8px; font-size: 20px; font-weight: bold; letter-spacing: 6px; box-shadow: inset 0 0 10px rgba(0,0,0,0.5); }
+    .podium { background: #78350f; border: 3px solid #b45309; color: #fef3c7; width: 28%; padding: 8px; border-radius: 6px; font-size: 16px; font-weight: bold; letter-spacing: 2px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5); }
+
+    .grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; max-width: 980px; margin: 0 auto; }
     .seat { background: #1e293b; border: 2px solid #334155; border-radius: 10px; padding: 14px 5px; font-size: 15px; font-weight: bold; transition: all 0.15s ease; }
     .seat.empty { border-color: #475569; color: #94a3b8; }
     .seat.active { background: #38bdf8; border-color: #7dd3fc; color: #0f172a; transform: scale(1.08); box-shadow: 0 0 20px #38bdf8; z-index: 10; }
@@ -32,7 +40,7 @@
     .seat.editing { border-color: #eab308; background: #292524; }
     .seat input.seat-num-input { width: 70%; text-align: center; font-size: 15px; font-weight: bold; background: #0f172a; color: #38bdf8; border: 1px solid #eab308; border-radius: 4px; }
 
-    .history-section { background: #1e293b; border: 2px solid #334155; max-width: 980px; margin: 0 auto; padding: 15px; border-radius: 12px; text-align: left; }
+    .history-section { background: #1e293b; border: 2px solid #334155; max-width: 980px; margin: 20px auto 0; padding: 15px; border-radius: 12px; text-align: left; }
     .history-list { max-height: 180px; overflow-y: auto; background: #0f172a; border-radius: 6px; padding: 10px; font-family: monospace; font-size: 14px; }
     .history-item { padding: 4px 0; border-bottom: 1px dashed #334155; color: #38bdf8; }
 
@@ -42,6 +50,8 @@
     @media print {
       body { background: white; color: black; }
       .panel, button, .history-section, .modal { display: none; }
+      .blackboard { background: white; color: black; border: 2px solid black; }
+      .podium { background: #eee; color: black; border: 2px solid black; }
       .seat { border: 1px solid black; color: black !important; background: white !important; }
     }
   </style>
@@ -51,7 +61,7 @@
   <h1>🔗 201座位表 <span style="font-size:14px; color:#22c55e;">(已開啟自動存檔)</span></h1>
   
   <div class="panel">
-    <button class="name-btn" onclick="openNameModal()">📋 編輯/匯入學生名單</button>
+    <button class="name-btn" onclick="openNameModal()">📋 學生名單</button>
 
     <div class="starter-picker">
       <label>🎯 首位：</label>
@@ -64,11 +74,20 @@
     <div class="current-badge" id="currentBox">目前：1 號</div>
     <div class="next-badge" id="nextBox">下一位：? 號</div>
 
+    <button class="image-btn" onclick="exportToImage()">🖼️ 匯出 PNG 圖片</button>
     <button class="export-btn" onclick="exportToCSV()">📥 匯出 CSV</button>
+    <button class="export-btn" onclick="window.print()">🖨️ 列印座位表</button>
     <button class="reset-btn" onclick="resetAllData()">🔄 清空重抽</button>
   </div>
 
-  <div class="grid" id="grid"></div>
+  <!-- 圖像導出抓取區域 -->
+  <div id="exportArea">
+    <div class="classroom-front">
+      <div class="blackboard">【 黑 板 / 螢 幕區 】</div>
+      <div class="podium">🏫 講 桌（教師位）</div>
+    </div>
+    <div class="grid" id="grid"></div>
+  </div>
 
   <div class="history-section">
     <h3 style="margin-top:0; color:#38bdf8;">📜 抽籤歷史連鎖紀錄</h3>
@@ -91,7 +110,7 @@
 
   <script>
     const TOTAL_SEATS = 36;
-    const STORAGE_KEY = '201_SEAT_PICKER_DATA';
+    const STORAGE_KEY = '201_SEAT_PICKER_WITH_IMAGE_DATA';
 
     let studentNames = Array.from({length: TOTAL_SEATS}, (_, i) => `學生${i + 1}`);
     let seats = Array.from({length: TOTAL_SEATS}, (_, i) => ({ label: `${i + 1}`, assignedStudentId: null }));
@@ -102,7 +121,6 @@
     let isGameStarted = false;
     let audioCtx = null;
 
-    // 自動儲存到 LocalStorage
     function saveData() {
       const dataToSave = {
         studentNames,
@@ -115,7 +133,6 @@
       localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
     }
 
-    // 自動讀取數據
     function loadData() {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
@@ -318,7 +335,6 @@
             nextStudentId: nextStudentId
           });
 
-          // 自動更新儲存狀態
           saveData();
 
           [523.25, 659.25, 783.99, 1046.50].forEach((f, i) => setTimeout(() => playSound(f, 0.2), i * 100));
@@ -338,6 +354,101 @@
       }
 
       spin();
+    }
+
+    // 將 HTML Canvas 繪製並下載為高畫質 PNG 圖片
+    function exportToImage() {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const width = 1200;
+      const height = 900;
+      canvas.width = width;
+      canvas.height = height;
+
+      // 深色背景
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(0, 0, width, height);
+
+      // 標題
+      ctx.fillStyle = '#38bdf8';
+      ctx.font = 'bold 36px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('201 班級座位表', width / 2, 60);
+
+      // 黑板區
+      ctx.fillStyle = '#14532d';
+      ctx.strokeStyle = '#166534';
+      ctx.lineWidth = 4;
+      ctx.fillRect(width * 0.15, 90, width * 0.7, 45);
+      ctx.strokeRect(width * 0.15, 90, width * 0.7, 45);
+      ctx.fillStyle = '#f0fdf4';
+      ctx.font = 'bold 22px sans-serif';
+      ctx.fillText('【 黑 板 / 螢 幕 區 】', width / 2, 120);
+
+      // 講桌
+      ctx.fillStyle = '#78350f';
+      ctx.strokeStyle = '#b45309';
+      ctx.lineWidth = 3;
+      ctx.fillRect(width * 0.36, 145, width * 0.28, 35);
+      ctx.strokeRect(width * 0.36, 145, width * 0.28, 35);
+      ctx.fillStyle = '#fef3c7';
+      ctx.font = 'bold 18px sans-serif';
+      ctx.fillText('🏫 講 桌（教師位）', width / 2, 168);
+
+      // 座位 6x6 陣列
+      const cols = 6;
+      const rows = 6;
+      const startX = 80;
+      const startY = 210;
+      const cellW = 160;
+      const cellH = 95;
+      const gapX = 15;
+      const gapY = 15;
+
+      seats.forEach((seat, idx) => {
+        const c = idx % cols;
+        const r = Math.floor(idx / cols);
+        const x = startX + c * (cellW + gapX);
+        const y = startY + r * (cellH + gapY);
+
+        ctx.lineWidth = 2;
+        if (seat.assignedStudentId !== null) {
+          ctx.fillStyle = '#15803d';
+          ctx.strokeStyle = '#4ade80';
+        } else {
+          ctx.fillStyle = '#1e293b';
+          ctx.strokeStyle = '#334155';
+        }
+
+        // 圓角矩形座位
+        ctx.beginPath();
+        ctx.roundRect(x, y, cellW, cellH, 8);
+        ctx.fill();
+        ctx.stroke();
+
+        // 座位標號
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = 'bold 15px sans-serif';
+        ctx.fillText(`【座位 ${seat.label}】`, x + cellW / 2, y + 30);
+
+        // 學生名稱/空位
+        if (seat.assignedStudentId !== null) {
+          ctx.fillStyle = '#f0fdf4';
+          ctx.font = 'bold 18px sans-serif';
+          ctx.fillText(`👤 ${getStudentDisplayName(seat.assignedStudentId)}`, x + cellW / 2, y + 68);
+        } else {
+          ctx.fillStyle = '#64748b';
+          ctx.font = '16px sans-serif';
+          ctx.fillText('(空位)', x + cellW / 2, y + 68);
+        }
+      });
+
+      // 觸發下載
+      const imageURL = canvas.toDataURL('image/png');
+      const a = document.createElement('a');
+      a.href = imageURL;
+      a.download = `201座位表_圖片檔_${new Date().toISOString().slice(0,10)}.png`;
+      a.click();
     }
 
     function exportToCSV() {
@@ -376,7 +487,6 @@
       }
     }
 
-    // 初始化流程
     loadData();
     initStarterSelect();
     render();
