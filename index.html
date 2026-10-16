@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <title>201座位表</title>
+  <style>
+    body { font-family: 'Segoe UI', Arial, sans-serif; background: #0f172a; color: #f8fafc; text-align: center; padding: 20px; margin: 0; }
+    h1 { font-size: 2.2rem; color: #38bdf8; margin-bottom: 5px; text-shadow: 0 0 10px rgba(56, 189, 248, 0.5); }
+    
+    .panel { background: #1e293b; border: 2px solid #334155; max-width: 980px; margin: 0 auto 20px; padding: 15px; border-radius: 12px; display: flex; justify-content: space-around; align-items: center; flex-wrap: wrap; gap: 10px; }
+    
+    .starter-picker { display: flex; align-items: center; gap: 6px; background: #0f172a; padding: 6px 12px; border-radius: 8px; border: 1px solid #475569; }
+    select, input, textarea { font-size: 15px; padding: 6px 10px; border-radius: 6px; border: 1px solid #475569; background: #1e293b; color: white; }
+    
+    .current-badge { background: linear-gradient(135deg, #0284c7, #2563eb); padding: 8px 16px; border-radius: 8px; font-size: 16px; font-weight: bold; }
+    .next-badge { background: linear-gradient(135deg, #d97706, #b45309); padding: 8px 16px; border-radius: 8px; font-size: 16px; font-weight: bold; }
+    
+    button { font-size: 14px; padding: 8px 14px; border-radius: 8px; border: none; cursor: pointer; font-weight: bold; transition: all 0.2s; }
+    button.draw-btn { font-size: 18px; padding: 10px 24px; border-radius: 30px; background: linear-gradient(135deg, #22c55e, #16a34a); color: white; box-shadow: 0 0 15px rgba(34, 197, 94, 0.4); }
+    button.draw-btn:hover { transform: scale(1.05); }
+    button.draw-btn:disabled { background: #475569; box-shadow: none; cursor: not-allowed; }
+    button.edit-btn { background: #eab308; color: #0f172a; }
+    button.export-btn { background: #06b6d4; color: #0f172a; }
+    button.name-btn { background: #a855f7; color: white; }
+
+    .grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; max-width: 980px; margin: 0 auto 20px; }
+    .seat { background: #1e293b; border: 2px solid #334155; border-radius: 10px; padding: 14px 5px; font-size: 15px; font-weight: bold; transition: all 0.15s ease; }
+    .seat.empty { border-color: #475569; color: #94a3b8; }
+    .seat.active { background: #38bdf8; border-color: #7dd3fc; color: #0f172a; transform: scale(1.08); box-shadow: 0 0 20px #38bdf8; z-index: 10; }
+    .seat.taken { background: #15803d; border-color: #4ade80; color: #f0fdf4; }
+    .seat.editing { border-color: #eab308; background: #292524; }
+    .seat input.seat-num-input { width: 70%; text-align: center; font-size: 15px; font-weight: bold; background: #0f172a; color: #38bdf8; border: 1px solid #eab308; border-radius: 4px; }
+
+    .history-section { background: #1e293b; border: 2px solid #334155; max-width: 980px; margin: 0 auto; padding: 15px; border-radius: 12px; text-align: left; }
+    .history-list { max-height: 180px; overflow-y: auto; background: #0f172a; border-radius: 6px; padding: 10px; font-family: monospace; font-size: 14px; }
+    .history-item { padding: 4px 0; border-bottom: 1px dashed #334155; color: #38bdf8; }
+
+    /* Modal 對話盒 */
+    .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 100; justify-content: center; align-items: center; }
+    .modal-content { background: #1e293b; border: 2px solid #38bdf8; padding: 20px; border-radius: 12px; max-width: 500px; width: 90%; text-align: left; }
+
+    @media print {
+      body { background: white; color: black; }
+      .panel, button, .history-section, .modal { display: none; }
+      .seat { border: 1px solid black; color: black !important; background: white !important; }
+    }
+  </style>
+</head>
+<body>
+
+  <h1>🔗 201座位表</h1>
+  
+  <div class="panel">
+    <button class="name-btn" onclick="openNameModal()">📋 編輯/匯入學生名單</button>
+
+    <div class="starter-picker">
+      <label>🎯 首位：</label>
+      <select id="starterSelect" onchange="setStarter(this.value)"></select>
+    </div>
+
+    <button class="edit-btn" id="editToggleBtn" onclick="toggleEditMode()">✏️ 編輯號碼</button>
+    <button class="draw-btn" id="drawBtn" onclick="startChainDraw()">🎲 抽座位</button>
+
+    <div class="current-badge" id="currentBox">目前：1 號</div>
+    <div class="next-badge" id="nextBox">下一位：? 號</div>
+
+    <button class="export-btn" onclick="exportToCSV()">📥 匯出 CSV</button>
+    <button class="export-btn" onclick="window.print()">🖨️ 列印座位表</button>
+  </div>
+
+  <div class="grid" id="grid"></div>
+
+  <div class="history-section">
+    <h3 style="margin-top:0; color:#38bdf8;">📜 抽籤歷史連鎖紀錄</h3>
+    <div class="history-list" id="historyList">
+      <div style="color:#64748b;">尚未開始抽籤，紀錄將於抽籤後自動寫入...</div>
+    </div>
+  </div>
+
+  <!-- 學生名單編輯 Modal -->
+  <div class="modal" id="nameModal">
+    <div class="modal-content">
+      <h3 style="margin-top:0; color:#38bdf8;">📋 批量貼上學生姓名名單</h3>
+      <p style="font-size:13px; color:#94a3b8;">請直接貼上全班姓名（一行一個名字），會自動依序對應 1 ~ 36 號：</p>
+      <textarea id="nameInputText" rows="10" style="width:95%; font-size:14px; margin-bottom:10px;"></textarea>
+      <div style="text-align:right;">
+        <button onclick="closeNameModal()" style="background:#64748b; color:white; margin-right:5px;">取消</button>
+        <button onclick="saveStudentNames()" style="background:#22c55e; color:white;">💾 儲存名單</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const TOTAL_SEATS = 36;
+    // 學生預設資料 (1-36號)
+    let studentNames = Array.from({length: TOTAL_SEATS}, (_, i) => `學生${i + 1}`);
+    let seats = Array.from({length: TOTAL_SEATS}, (_, i) => ({ label: `${i + 1}`, assignedStudentId: null }));
+    let drawnStudents = new Set();
+    let historyLog = [];
+    let currentStudentId = 1; // 當前上台學生號碼
+    let isEditingMode = false;
+    let isGameStarted = false;
+    let audioCtx = null;
+
+    function initAudio() {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+
+    function playSound(freq, duration = 0.08) {
+      if (!audioCtx) return;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+      gain.gain.setValueAtTime(0.08, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duration);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + duration);
+    }
+
+    function getStudentDisplayName(id) {
+      return `${id}號 ${studentNames[id - 1] || ''}`;
+    }
+
+    function initStarterSelect() {
+      const select = document.getElementById('starterSelect');
+      select.innerHTML = '';
+      for (let i = 1; i <= TOTAL_SEATS; i++) {
+        const opt = document.createElement('option');
+        opt.value = i;
+        opt.innerText = getStudentDisplayName(i);
+        select.appendChild(opt);
+      }
+      select.value = 1;
+      setStarter(1);
+    }
+
+    function openNameModal() {
+      document.getElementById('nameInputText').value = studentNames.join('\n');
+      document.getElementById('nameModal').style.display = 'flex';
+    }
+
+    function closeNameModal() {
+      document.getElementById('nameModal').style.display = 'none';
+    }
+
+    function saveStudentNames() {
+      const text = document.getElementById('nameInputText').value;
+      const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+      lines.forEach((name, idx) => {
+        if (idx < TOTAL_SEATS) {
+          studentNames[idx] = name;
+        }
+      });
+      closeNameModal();
+      initStarterSelect();
+      render();
+    }
+
+    function setStarter(num) {
+      if (isGameStarted) return;
+      currentStudentId = parseInt(num);
+      document.getElementById('currentBox').innerText = `目前：${getStudentDisplayName(currentStudentId)}`;
+    }
+
+    function toggleEditMode() {
+      if (isGameStarted) return;
+      isEditingMode = !isEditingMode;
+      const btn = document.getElementById('editToggleBtn');
+      btn.innerText = isEditingMode ? '💾 完成修改' : '✏️ 編輯號碼';
+      render();
+    }
+
+    function updateSeatLabel(idx, newLabel) {
+      seats[idx].label = newLabel.trim() || `${idx + 1}`;
+    }
+
+    function render(highlightIdx = -1) {
+      const container = document.getElementById('grid');
+      container.innerHTML = '';
+      
+      seats.forEach((seat, idx) => {
+        const div = document.createElement('div');
+        let stateClass = 'empty';
+
+        if (idx === highlightIdx) stateClass = 'active';
+        else if (seat.assignedStudentId !== null) stateClass = 'taken';
+        else if (isEditingMode) stateClass = 'editing';
+
+        div.className = `seat ${stateClass}`;
+
+        if (isEditingMode && seat.assignedStudentId === null) {
+          div.innerHTML = `
+            <span style="font-size:12px; opacity:0.7;">位置 ${idx + 1}：</span><br>
+            <input type="text" class="seat-num-input" value="${seat.label}" onchange="updateSeatLabel(${idx}, this.value)" onclick="event.stopPropagation()">
+          `;
+        } else {
+          let text = `<span style="font-size:13px; opacity:0.8;">【座位 ${seat.label}】</span><br>`;
+          if (seat.assignedStudentId !== null) {
+            text += `👤 ${getStudentDisplayName(seat.assignedStudentId)}`;
+          } else {
+            text += `<span style="font-size:13px; opacity:0.5;">(空位)</span>`;
+          }
+          div.innerHTML = text;
+        }
+
+        container.appendChild(div);
+      });
+
+      document.getElementById('currentBox').innerText = `目前：${getStudentDisplayName(currentStudentId)}`;
+    }
+
+    function renderHistory() {
+      const list = document.getElementById('historyList');
+      if (historyLog.length === 0) return;
+      list.innerHTML = historyLog.map(item => `
+        <div class="history-item">
+          步數 ${item.step} ➔ 👤 ${getStudentDisplayName(item.studentId)} 抽中座位【${item.seatLabel}】 (接棒：${item.nextStudentId ? getStudentDisplayName(item.nextStudentId) : '🎉 全班完成'})
+        </div>
+      `).join('');
+      list.scrollTop = list.scrollHeight;
+    }
+
+    function getNextStudentId(targetSeatLabel) {
+      const parsedNum = parseInt(targetSeatLabel);
+      if (!isNaN(parsedNum) && parsedNum >= 1 && parsedNum <= TOTAL_SEATS && !drawnStudents.has(parsedNum)) {
+        return parsedNum;
+      }
+      for (let cand = 1; cand <= TOTAL_SEATS; cand++) {
+        if (!drawnStudents.has(cand)) return cand;
+      }
+      return null;
+    }
+
+    function startChainDraw() {
+      if (isEditingMode) toggleEditMode();
+      initAudio();
+      
+      if (!isGameStarted) {
+        isGameStarted = true;
+        document.getElementById('starterSelect').disabled = true;
+      }
+
+      const availableIndices = [];
+      seats.forEach((seat, idx) => {
+        if (seat.assignedStudentId === null) availableIndices.push(idx);
+      });
+
+      if (availableIndices.length === 0) return;
+
+      document.getElementById('drawBtn').disabled = true;
+
+      const targetSeatIdx = availableIndices[Math.floor(Math.random() * availableIndices.length)];
+      const targetSeat = seats[targetSeatIdx];
+
+      let speed = 40;
+      let step = 0;
+      let totalSteps = 25 + Math.floor(Math.random() * 10);
+
+      function spin() {
+        step++;
+        const currentSeatIdx = availableIndices[step % availableIndices.length];
+        playSound(400 + (step % 5) * 50);
+        render(currentSeatIdx);
+
+        if (step < totalSteps) {
+          setTimeout(spin, speed);
+        } else if (speed < 350) {
+          speed += 45;
+          setTimeout(spin, speed);
+        } else {
+          targetSeat.assignedStudentId = currentStudentId;
+          drawnStudents.add(currentStudentId);
+          
+          const nextStudentId = getNextStudentId(targetSeat.label);
+
+          historyLog.push({
+            step: historyLog.length + 1,
+            studentId: currentStudentId,
+            seatLabel: targetSeat.label,
+            nextStudentId: nextStudentId
+          });
+
+          [523.25, 659.25, 783.99, 1046.50].forEach((f, i) => setTimeout(() => playSound(f, 0.2), i * 100));
+
+          document.getElementById('nextBox').innerText = nextStudentId ? `👉 下一位接棒：${getStudentDisplayName(nextStudentId)}` : '🎉 全班完成！';
+
+          render();
+          renderHistory();
+
+          if (nextStudentId) {
+            currentStudentId = nextStudentId;
+            document.getElementById('drawBtn').disabled = false;
+          } else {
+            document.getElementById('drawBtn').disabled = true;
+          }
+        }
+      }
+
+      spin();
+    }
+
+    function exportToCSV() {
+      if (historyLog.length === 0) {
+        alert('目前尚無抽籤紀錄可匯出！');
+        return;
+      }
+      let csvContent = "\uFEFF步數,學生座號,學生姓名,抽中座位號碼,接棒學生\n";
+      historyLog.forEach(item => {
+        const studentName = studentNames[item.studentId - 1] || '';
+        const nextName = item.nextStudentId ? getStudentDisplayName(item.nextStudentId) : '完成';
+        csvContent += `${item.step},${item.studentId},${studentName},${item.seatLabel},${nextName}\n`;
+      });
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `201座位表_學生對照抽籤紀錄_${new Date().toISOString().slice(0,10)}.csv`;
+      a.click();
+    }
+
+    initStarterSelect();
+    render();
+  </script>
+</body>
+</html>
