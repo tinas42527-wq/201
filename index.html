@@ -2,7 +2,7 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <title>201座位表</title>
+  <title>201座位表 (自動存檔版)</title>
   <style>
     body { font-family: 'Segoe UI', Arial, sans-serif; background: #0f172a; color: #f8fafc; text-align: center; padding: 20px; margin: 0; }
     h1 { font-size: 2.2rem; color: #38bdf8; margin-bottom: 5px; text-shadow: 0 0 10px rgba(56, 189, 248, 0.5); }
@@ -22,6 +22,7 @@
     button.edit-btn { background: #eab308; color: #0f172a; }
     button.export-btn { background: #06b6d4; color: #0f172a; }
     button.name-btn { background: #a855f7; color: white; }
+    button.reset-btn { background: #ef4444; color: white; }
 
     .grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; max-width: 980px; margin: 0 auto 20px; }
     .seat { background: #1e293b; border: 2px solid #334155; border-radius: 10px; padding: 14px 5px; font-size: 15px; font-weight: bold; transition: all 0.15s ease; }
@@ -35,7 +36,6 @@
     .history-list { max-height: 180px; overflow-y: auto; background: #0f172a; border-radius: 6px; padding: 10px; font-family: monospace; font-size: 14px; }
     .history-item { padding: 4px 0; border-bottom: 1px dashed #334155; color: #38bdf8; }
 
-    /* Modal 對話盒 */
     .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 100; justify-content: center; align-items: center; }
     .modal-content { background: #1e293b; border: 2px solid #38bdf8; padding: 20px; border-radius: 12px; max-width: 500px; width: 90%; text-align: left; }
 
@@ -48,7 +48,7 @@
 </head>
 <body>
 
-  <h1>🔗 201座位表</h1>
+  <h1>🔗 201座位表 <span style="font-size:14px; color:#22c55e;">(已開啟自動存檔)</span></h1>
   
   <div class="panel">
     <button class="name-btn" onclick="openNameModal()">📋 編輯/匯入學生名單</button>
@@ -65,7 +65,7 @@
     <div class="next-badge" id="nextBox">下一位：? 號</div>
 
     <button class="export-btn" onclick="exportToCSV()">📥 匯出 CSV</button>
-    <button class="export-btn" onclick="window.print()">🖨️ 列印座位表</button>
+    <button class="reset-btn" onclick="resetAllData()">🔄 清空重抽</button>
   </div>
 
   <div class="grid" id="grid"></div>
@@ -77,11 +77,10 @@
     </div>
   </div>
 
-  <!-- 學生名單編輯 Modal -->
   <div class="modal" id="nameModal">
     <div class="modal-content">
-      <h3 style="margin-top:0; color:#38bdf8;">📋 批量貼上學生姓名名單</h3>
-      <p style="font-size:13px; color:#94a3b8;">請直接貼上全班姓名（一行一個名字），會自動依序對應 1 ~ 36 號：</p>
+      <h3 style="margin-top:0; color:#38bdf8;">📋 貼上 201 班學生名單</h3>
+      <p style="font-size:13px; color:#94a3b8;">一行一個名字，自動依序對應 1 ~ 36 號：</p>
       <textarea id="nameInputText" rows="10" style="width:95%; font-size:14px; margin-bottom:10px;"></textarea>
       <div style="text-align:right;">
         <button onclick="closeNameModal()" style="background:#64748b; color:white; margin-right:5px;">取消</button>
@@ -92,15 +91,47 @@
 
   <script>
     const TOTAL_SEATS = 36;
-    // 學生預設資料 (1-36號)
+    const STORAGE_KEY = '201_SEAT_PICKER_DATA';
+
     let studentNames = Array.from({length: TOTAL_SEATS}, (_, i) => `學生${i + 1}`);
     let seats = Array.from({length: TOTAL_SEATS}, (_, i) => ({ label: `${i + 1}`, assignedStudentId: null }));
-    let drawnStudents = new Set();
+    let drawnStudents = [];
     let historyLog = [];
-    let currentStudentId = 1; // 當前上台學生號碼
+    let currentStudentId = 1;
     let isEditingMode = false;
     let isGameStarted = false;
     let audioCtx = null;
+
+    // 自動儲存到 LocalStorage
+    function saveData() {
+      const dataToSave = {
+        studentNames,
+        seats,
+        drawnStudents,
+        historyLog,
+        currentStudentId,
+        isGameStarted
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
+    }
+
+    // 自動讀取數據
+    function loadData() {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          studentNames = parsed.studentNames || studentNames;
+          seats = parsed.seats || seats;
+          drawnStudents = parsed.drawnStudents || [];
+          historyLog = parsed.historyLog || [];
+          currentStudentId = parsed.currentStudentId || 1;
+          isGameStarted = parsed.isGameStarted || false;
+        } catch (e) {
+          console.error("載入舊資料失敗", e);
+        }
+      }
+    }
 
     function initAudio() {
       if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -133,8 +164,8 @@
         opt.innerText = getStudentDisplayName(i);
         select.appendChild(opt);
       }
-      select.value = 1;
-      setStarter(1);
+      select.value = currentStudentId;
+      if (isGameStarted) select.disabled = true;
     }
 
     function openNameModal() {
@@ -155,6 +186,7 @@
         }
       });
       closeNameModal();
+      saveData();
       initStarterSelect();
       render();
     }
@@ -162,7 +194,8 @@
     function setStarter(num) {
       if (isGameStarted) return;
       currentStudentId = parseInt(num);
-      document.getElementById('currentBox').innerText = `目前：${getStudentDisplayName(currentStudentId)}`;
+      saveData();
+      render();
     }
 
     function toggleEditMode() {
@@ -175,6 +208,7 @@
 
     function updateSeatLabel(idx, newLabel) {
       seats[idx].label = newLabel.trim() || `${idx + 1}`;
+      saveData();
     }
 
     function render(highlightIdx = -1) {
@@ -224,12 +258,13 @@
     }
 
     function getNextStudentId(targetSeatLabel) {
+      const drawnSet = new Set(drawnStudents);
       const parsedNum = parseInt(targetSeatLabel);
-      if (!isNaN(parsedNum) && parsedNum >= 1 && parsedNum <= TOTAL_SEATS && !drawnStudents.has(parsedNum)) {
+      if (!isNaN(parsedNum) && parsedNum >= 1 && parsedNum <= TOTAL_SEATS && !drawnSet.has(parsedNum)) {
         return parsedNum;
       }
       for (let cand = 1; cand <= TOTAL_SEATS; cand++) {
-        if (!drawnStudents.has(cand)) return cand;
+        if (!drawnSet.has(cand)) return cand;
       }
       return null;
     }
@@ -272,7 +307,7 @@
           setTimeout(spin, speed);
         } else {
           targetSeat.assignedStudentId = currentStudentId;
-          drawnStudents.add(currentStudentId);
+          drawnStudents.push(currentStudentId);
           
           const nextStudentId = getNextStudentId(targetSeat.label);
 
@@ -282,6 +317,9 @@
             seatLabel: targetSeat.label,
             nextStudentId: nextStudentId
           });
+
+          // 自動更新儲存狀態
+          saveData();
 
           [523.25, 659.25, 783.99, 1046.50].forEach((f, i) => setTimeout(() => playSound(f, 0.2), i * 100));
 
@@ -317,12 +355,32 @@
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `201座位表_學生對照抽籤紀錄_${new Date().toISOString().slice(0,10)}.csv`;
+      a.download = `201座位表_抽籤紀錄_${new Date().toISOString().slice(0,10)}.csv`;
       a.click();
     }
 
+    function resetAllData() {
+      if (confirm('確定要清空目前的抽籤紀錄與座位嗎？（學生名單將會保留）')) {
+        seats = Array.from({length: TOTAL_SEATS}, (_, i) => ({ label: `${i + 1}`, assignedStudentId: null }));
+        drawnStudents = [];
+        historyLog = [];
+        currentStudentId = 1;
+        isGameStarted = false;
+        
+        saveData();
+        initStarterSelect();
+        document.getElementById('drawBtn').disabled = false;
+        document.getElementById('nextBox').innerText = '下一位：? 號';
+        document.getElementById('historyList').innerHTML = '<div style="color:#64748b;">紀錄已重置...</div>';
+        render();
+      }
+    }
+
+    // 初始化流程
+    loadData();
     initStarterSelect();
     render();
+    renderHistory();
   </script>
 </body>
 </html>
