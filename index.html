@@ -625,12 +625,43 @@
         document.getElementById('starterSelect').disabled = true;
       }
 
-      const availableIndices = [];
+      const freeIndices = [];
       seats.forEach((seat, idx) => {
-        if (seat.assignedStudentId === null) availableIndices.push(idx);
+        if (seat.assignedStudentId === null) freeIndices.push(idx);
       });
 
-      if (availableIndices.length === 0) return;
+      if (freeIndices.length === 0) return;
+
+      // 學生不抽到「座位號」或「座號」與自己相同的座位（座位號＝格子上顯示的號碼；座號＝格子的位置序號）
+      const sameNo = (i, sid) => String(seats[i].label).trim() === String(sid) || i + 1 === sid;
+
+      // 檢查剩下的學生是否都還排得到不衝突的座位（避免抽到最後卡死）
+      const canMatch = (students, seatIdxs) => {
+        const owner = new Map();
+        const tryAssign = (st, seen) => {
+          for (const si of seatIdxs) {
+            if (sameNo(si, st) || seen.has(si)) continue;
+            seen.add(si);
+            if (!owner.has(si) || tryAssign(owner.get(si), seen)) { owner.set(si, st); return true; }
+          }
+          return false;
+        };
+        return students.every(st => tryAssign(st, new Set()));
+      };
+
+      const undrawnAll = [];
+      for (let n = 1; n <= TOTAL_SEATS; n++) if (!drawnStudents.includes(n)) undrawnAll.push(n);
+      const others = undrawnAll.filter(n => n !== currentStudentId);
+
+      let availableIndices = freeIndices.filter(i => !sameNo(i, currentStudentId));
+      if (availableIndices.length > 0 && others.length === freeIndices.length - 1) {
+        const safe = availableIndices.filter(i => canMatch(others, freeIndices.filter(j => j !== i)));
+        if (safe.length > 0) availableIndices = safe;
+      }
+      if (availableIndices.length === 0) {
+        availableIndices = freeIndices;
+        alert(`只剩座位【${seats[freeIndices[0]].label}】，與 ${getStudentDisplayName(currentStudentId)} 的座位號或座號相同，無法避開，只好例外安排。\n（之後可用「手動換座位」調整）`);
+      }
 
       document.getElementById('drawBtn').disabled = true;
       isSpinning = true;
@@ -825,7 +856,6 @@
   </script>
 </body>
 </html>
-
 
 
 
