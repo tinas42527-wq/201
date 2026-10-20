@@ -54,7 +54,7 @@
     .seat { background: #1e293b; border: 2px solid #334155; border-radius: 10px; padding: 4px 5px; font-size: clamp(13px, 2.2vh, 22px); font-weight: bold; transition: all 0.15s ease; }
     .seat.empty { border-color: #475569; color: #94a3b8; }
     .seat.active { background: #38bdf8; border-color: #7dd3fc; color: #0f172a; transform: scale(1.08); box-shadow: 0 0 20px #38bdf8; z-index: 10; }
-    .seat.taken { background: #15803d; border-color: #4ade80; color: #f0fdf4; }
+    .seat.taken { background: #15803d; border-color: #4ade80; color: #f0fdf4; font-size: clamp(20px, 3.3vh, 33px); line-height: 1.25; }
     .seat.editing { border-color: #eab308; background: #292524; }
     .seat input.seat-num-input { width: 70%; text-align: center; font-size: 15px; font-weight: bold; background: #0f172a; color: #38bdf8; border: 1px solid #eab308; border-radius: 4px; }
 
@@ -301,6 +301,12 @@
 
     function getStudentDisplayName(id) {
       return `${id}號 ${studentNames[id - 1] || ''}`;
+    }
+
+    // 座位格上顯示：名字不拆行，空間不足時只在「號」和名字之間換行
+    function seatNameHtml(id) {
+      const esc = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      return `<span style="white-space:nowrap; font-size:0.6em; opacity:0.9; line-height:1.2;">${id}號</span><span style="white-space:nowrap">👤 ${esc(studentNames[id - 1] || '')}</span>`;
     }
 
     function initStarterSelect() {
@@ -647,7 +653,7 @@
         } else {
           let text = seat.assignedStudentId !== null ? '' : `<span style="font-size:13px; opacity:0.8;">【座位 ${seat.label}】</span><br>`;
           if (seat.assignedStudentId !== null) {
-            text += `👤 ${getStudentDisplayName(seat.assignedStudentId)}`;
+            text += seatNameHtml(seat.assignedStudentId);
           } else {
             text += `<span style="font-size:13px; opacity:0.5;">(空位)</span>`;
           }
@@ -872,8 +878,18 @@
         // 學生名稱/空位
         if (seat.assignedStudentId !== null) {
           ctx.fillStyle = '#f0fdf4';
-          ctx.font = 'bold 18px sans-serif';
-          ctx.fillText(`👤 ${getStudentDisplayName(seat.assignedStudentId)}`, x + cellW / 2, nameY);
+          const nameText = `👤 ${studentNames[seat.assignedStudentId - 1] || ''}`;
+          let nameSize = 27;
+          ctx.font = `bold ${nameSize}px sans-serif`;
+          while (ctx.measureText(nameText).width > cellW - 12 && nameSize > 14) {
+            nameSize--;
+            ctx.font = `bold ${nameSize}px sans-serif`;
+          }
+          ctx.fillText(nameText, x + cellW / 2, y + 68);
+          // 座號：在姓名上方，字體較小
+          ctx.fillStyle = '#bbf7d0';
+          ctx.font = 'bold 16px sans-serif';
+          ctx.fillText(`${seat.assignedStudentId}號`, x + cellW / 2, y + 28);
         } else {
           ctx.fillStyle = '#64748b';
           ctx.font = '16px sans-serif';
@@ -936,5 +952,6 @@
   </script>
 </body>
 </html>
+
 
 
