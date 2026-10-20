@@ -24,6 +24,9 @@
     button.image-btn { background: #ec4899; color: white; }
     button.name-btn { background: #a855f7; color: white; }
     button.reset-btn { background: #ef4444; color: white; }
+    button.swap-btn { background: #f472b6; color: #0f172a; }
+    .seat { min-height: 48px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    .seat.selected { background: #be185d; border-color: #f9a8d4; color: #fff; transform: scale(1.06); box-shadow: 0 0 16px #f472b6; }
 
     /* 需被截圖轉換的班級座位區域 */
     #exportArea { background: #0f172a; padding: 15px; border-radius: 12px; max-width: 980px; margin: 0 auto; }
@@ -58,7 +61,7 @@
 </head>
 <body>
 
-  <h1>🔗 201座位表 <span style="font-size:14px; color:#22c55e;">(已開啟自動存檔)</span></h1>
+  <h1>🔗 201座位表 <span id="syncStatus" style="font-size:14px; color:#94a3b8;">(載入中…)</span></h1>
   
   <div class="panel">
     <button class="name-btn" onclick="openNameModal()">📋 學生名單</button>
@@ -69,6 +72,7 @@
     </div>
 
     <button class="edit-btn" id="editToggleBtn" onclick="toggleEditMode()">✏️ 編輯號碼</button>
+    <button class="swap-btn" id="swapToggleBtn" onclick="toggleSwapMode()">🔀 手動換座位</button>
     <button class="draw-btn" id="drawBtn" onclick="startChainDraw()">🎲 抽座位</button>
 
     <div class="current-badge" id="currentBox">目前：1 號</div>
@@ -121,33 +125,112 @@
     let isGameStarted = false;
     let audioCtx = null;
 
+    let isSpinning = false;
+    let isSwapMode = false;
+    let swapSelected = -1;
+    const CLOUD_PATH = 'seating/state';
+    let cloudDoc = null, cloudWriting = false, cloudDirty = false;
+
+    function stateObject() {
+      return { studentNames, seats, drawnStudents, historyLog, currentStudentId, isGameStarted };
+    }
+
+    function canon(o) {
+      return JSON.stringify(o, (k, v) => (v && typeof v === 'object' && !Array.isArray(v))
+        ? Object.fromEntries(Object.keys(v).sort().map(key => [key, v[key]])) : v);
+    }
+
+    function applyState(p) {
+      // 深拷貝：雲端回傳的資料是唯讀的，直接使用會導致之後無法修改
+      const c = JSON.parse(JSON.stringify(p));
+      if (Array.isArray(c.studentNames)) studentNames = c.studentNames;
+      if (Array.isArray(c.seats)) {
+        seats = Array.from({ length: TOTAL_SEATS }, (_, i) => {
+          const s = c.seats[i] || {};
+          const hasLabel = s.label !== undefined && s.label !== null && String(s.label).trim() !== '';
+          return { label: hasLabel ? String(s.label) : `${i + 1}`, assignedStudentId: s.assignedStudentId ?? null };
+        });
+      }
+      drawnStudents = c.drawnStudents || [];
+      historyLog = c.historyLog || [];
+      currentStudentId = c.currentStudentId || 1;
+      isGameStarted = !!c.isGameStarted;
+    }
+
+    function setSync(text, color) {
+      const el = document.getElementById('syncStatus');
+      if (el) { el.textContent = text; el.style.color = color; }
+    }
+
     function saveData() {
-      const dataToSave = {
-        studentNames,
-        seats,
-        drawnStudents,
-        historyLog,
-        currentStudentId,
-        isGameStarted
-      };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(stateObject())); } catch (e) {}
+      pushCloud();
     }
 
     function loadData() {
-      const saved = localStorage.getItem(STORAGE_KEY);
+      let saved = null;
+      try { saved = localStorage.getItem(STORAGE_KEY); } catch (e) {}
       if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          studentNames = parsed.studentNames || studentNames;
-          seats = parsed.seats || seats;
-          drawnStudents = parsed.drawnStudents || [];
-          historyLog = parsed.historyLog || [];
-          currentStudentId = parsed.currentStudentId || 1;
-          isGameStarted = parsed.isGameStarted || false;
-        } catch (e) {
-          console.error("載入舊資料失敗", e);
-        }
+        try { applyState(JSON.parse(saved)); }
+        catch (e) { console.error("載入舊資料失敗", e); }
       }
+    }
+
+    async function pushCloud() {
+      if (!cloudDoc) return;
+      if (cloudWriting) { cloudDirty = true; return; }
+      cloudWriting = true;
+      try {
+        do {
+          cloudDirty = false;
+          await cloudDoc.set({ ...stateObject(), updatedAt: Date.now() });
+        } while (cloudDirty);
+        setSync('☁️ 已同步到雲端（換電腦也能用）', '#22c55e');
+      } catch (e) {
+        console.error(e);
+        setSync(e && e.code === 'invalid_argument' ? '👀 唯讀（沒有寫入權限）' : '⚠️ 雲端儲存失敗，僅存本機', '#f59e0b');
+      } finally {
+        cloudWriting = false;
+      }
+    }
+
+    function refreshUI() {
+      initStarterSelect();
+      render();
+      renderHistory();
+      const last = [...historyLog].reverse().find(h => !h.type);
+      document.getElementById('nextBox').innerText = !last ? '下一位：? 號'
+        : (last.nextStudentId ? `👉 下一位接棒：${getStudentDisplayName(last.nextStudentId)}` : '🎉 全班完成！');
+      const free = seats.some(s => s.assignedStudentId === null);
+      document.getElementById('drawBtn').disabled = !free || (last && !last.nextStudentId);
+    }
+
+    async function initCloud() {
+      let db = null;
+      try { db = window.claude && window.claude.use ? await window.claude.use('db') : null; } catch (e) {}
+      if (!db) { setSync('💾 僅存本機（此瀏覽器）', '#94a3b8'); return; }
+      cloudDoc = db.doc(CLOUD_PATH);
+      setSync('☁️ 連線雲端中…', '#94a3b8');
+      cloudDoc.onSnapshot(snap => {
+        if (snap.metadata.fromCache && !snap.exists) return;
+        if (!snap.exists) {
+          // 雲端還沒資料：把本機目前的資料上傳
+          saveData();
+          return;
+        }
+        setSync('☁️ 已同步到雲端（換電腦也能用）', '#22c55e');
+        if (isSpinning || cloudWriting || cloudDirty || isEditingMode || isSwapMode) return;
+        const remote = snap.data();
+        const before = canon(stateObject());
+        applyState(remote);
+        if (canon(stateObject()) === before) return;
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(stateObject())); } catch (e) {}
+        refreshUI();
+      }, err => {
+        console.error(err);
+        cloudDoc = null;
+        setSync('⚠️ 雲端中斷，僅存本機', '#f59e0b');
+      });
     }
 
     function initAudio() {
@@ -182,7 +265,7 @@
         select.appendChild(opt);
       }
       select.value = currentStudentId;
-      if (isGameStarted) select.disabled = true;
+      select.disabled = !!isGameStarted;
     }
 
     function openNameModal() {
@@ -217,6 +300,7 @@
 
     function toggleEditMode() {
       if (isGameStarted) return;
+      if (isSwapMode) toggleSwapMode();
       isEditingMode = !isEditingMode;
       const btn = document.getElementById('editToggleBtn');
       btn.innerText = isEditingMode ? '💾 完成修改' : '✏️ 編輯號碼';
@@ -226,6 +310,39 @@
     function updateSeatLabel(idx, newLabel) {
       seats[idx].label = newLabel.trim() || `${idx + 1}`;
       saveData();
+    }
+
+    function toggleSwapMode() {
+      if (isSpinning) return;
+      if (isEditingMode) toggleEditMode();
+      isSwapMode = !isSwapMode;
+      swapSelected = -1;
+      document.getElementById('swapToggleBtn').innerText = isSwapMode ? '✅ 完成換位' : '🔀 手動換座位';
+      render();
+    }
+
+    function onSeatClick(idx) {
+      if (isSpinning || !isSwapMode) return;
+      if (swapSelected === -1) {
+        if (seats[idx].assignedStudentId === null) return;
+        swapSelected = idx;
+        render();
+        return;
+      }
+      if (swapSelected === idx) {
+        swapSelected = -1;
+        render();
+        return;
+      }
+      const a = seats[swapSelected], b = seats[idx];
+      const sid = a.assignedStudentId, tid = b.assignedStudentId;
+      a.assignedStudentId = tid;
+      b.assignedStudentId = sid;
+      historyLog.push({ type: 'swap', studentId: sid, seatLabel: b.label, fromSeatLabel: a.label, otherStudentId: tid });
+      swapSelected = -1;
+      saveData();
+      render();
+      renderHistory();
     }
 
     function render(highlightIdx = -1) {
@@ -240,7 +357,11 @@
         else if (seat.assignedStudentId !== null) stateClass = 'taken';
         else if (isEditingMode) stateClass = 'editing';
 
-        div.className = `seat ${stateClass}`;
+        div.className = `seat ${stateClass}` + (isSwapMode && idx === swapSelected ? ' selected' : '');
+        if (isSwapMode) {
+          div.style.cursor = 'pointer';
+          div.onclick = () => onSeatClick(idx);
+        }
 
         if (isEditingMode && seat.assignedStudentId === null) {
           div.innerHTML = `
@@ -248,7 +369,7 @@
             <input type="text" class="seat-num-input" value="${seat.label}" onchange="updateSeatLabel(${idx}, this.value)" onclick="event.stopPropagation()">
           `;
         } else {
-          let text = `<span style="font-size:13px; opacity:0.8;">【座位 ${seat.label}】</span><br>`;
+          let text = seat.assignedStudentId !== null ? '' : `<span style="font-size:13px; opacity:0.8;">【座位 ${seat.label}】</span><br>`;
           if (seat.assignedStudentId !== null) {
             text += `👤 ${getStudentDisplayName(seat.assignedStudentId)}`;
           } else {
@@ -265,8 +386,11 @@
 
     function renderHistory() {
       const list = document.getElementById('historyList');
-      if (historyLog.length === 0) return;
-      list.innerHTML = historyLog.map(item => `
+      if (historyLog.length === 0) {
+        list.innerHTML = '<div style="color:#64748b;">尚未開始抽籤，紀錄將於抽籤後自動寫入...</div>';
+        return;
+      }
+      list.innerHTML = historyLog.map(item => item.type === 'swap' ? `<div class="history-item" style="color:#f472b6;">🔀 手動調整 ➔ ${getStudentDisplayName(item.studentId)} 換到座位【${item.seatLabel}】${item.otherStudentId ? `（與 ${getStudentDisplayName(item.otherStudentId)} 互換）` : '（原位置清空）'}</div>` : `
         <div class="history-item">
           步數 ${item.step} ➔ 👤 ${getStudentDisplayName(item.studentId)} 抽中座位【${item.seatLabel}】 (接棒：${item.nextStudentId ? getStudentDisplayName(item.nextStudentId) : '🎉 全班完成'})
         </div>
@@ -288,6 +412,7 @@
 
     function startChainDraw() {
       if (isEditingMode) toggleEditMode();
+      if (isSwapMode) toggleSwapMode();
       initAudio();
       
       if (!isGameStarted) {
@@ -303,6 +428,7 @@
       if (availableIndices.length === 0) return;
 
       document.getElementById('drawBtn').disabled = true;
+      isSpinning = true;
 
       const targetSeatIdx = availableIndices[Math.floor(Math.random() * availableIndices.length)];
       const targetSeat = seats[targetSeatIdx];
@@ -329,13 +455,11 @@
           const nextStudentId = getNextStudentId(targetSeat.label);
 
           historyLog.push({
-            step: historyLog.length + 1,
+            step: historyLog.filter(h => !h.type).length + 1,
             studentId: currentStudentId,
             seatLabel: targetSeat.label,
             nextStudentId: nextStudentId
           });
-
-          saveData();
 
           [523.25, 659.25, 783.99, 1046.50].forEach((f, i) => setTimeout(() => playSound(f, 0.2), i * 100));
 
@@ -350,6 +474,8 @@
           } else {
             document.getElementById('drawBtn').disabled = true;
           }
+          isSpinning = false;
+          saveData();
         }
       }
 
@@ -426,20 +552,17 @@
         ctx.fill();
         ctx.stroke();
 
-        // 座位標號
-        ctx.fillStyle = '#94a3b8';
-        ctx.font = 'bold 15px sans-serif';
-        ctx.fillText(`【座位 ${seat.label}】`, x + cellW / 2, y + 30);
+        const nameY = y + cellH / 2 + 6;
 
         // 學生名稱/空位
         if (seat.assignedStudentId !== null) {
           ctx.fillStyle = '#f0fdf4';
           ctx.font = 'bold 18px sans-serif';
-          ctx.fillText(`👤 ${getStudentDisplayName(seat.assignedStudentId)}`, x + cellW / 2, y + 68);
+          ctx.fillText(`👤 ${getStudentDisplayName(seat.assignedStudentId)}`, x + cellW / 2, nameY);
         } else {
           ctx.fillStyle = '#64748b';
           ctx.font = '16px sans-serif';
-          ctx.fillText('(空位)', x + cellW / 2, y + 68);
+          ctx.fillText('(空位)', x + cellW / 2, nameY);
         }
       });
 
@@ -458,6 +581,10 @@
       }
       let csvContent = "\uFEFF步數,學生座號,學生姓名,抽中座位號碼,接棒學生\n";
       historyLog.forEach(item => {
+        if (item.type === 'swap') {
+          csvContent += `手動調整,${item.studentId},${studentNames[item.studentId - 1] || ''},${item.seatLabel},${item.otherStudentId ? '與' + item.otherStudentId + '號互換' : '移到空位'}\n`;
+          return;
+        }
         const studentName = studentNames[item.studentId - 1] || '';
         const nextName = item.nextStudentId ? getStudentDisplayName(item.nextStudentId) : '完成';
         csvContent += `${item.step},${item.studentId},${studentName},${item.seatLabel},${nextName}\n`;
@@ -488,9 +615,8 @@
     }
 
     loadData();
-    initStarterSelect();
-    render();
-    renderHistory();
+    refreshUI();
+    initCloud();
   </script>
 </body>
 </html>
