@@ -26,6 +26,9 @@
     button.reset-btn { background: #ef4444; color: white; }
     button.swap-btn { background: #f472b6; color: #0f172a; }
     .seat.dragging { opacity: 0.35; }
+    #exportArea.teacher-view { display: flex; flex-direction: column-reverse; }
+    #exportArea.teacher-view .classroom-front { flex-direction: column-reverse; margin: 15px auto 0; width: 100%; }
+    #exportArea.teacher-view .grid { width: 100%; }
     .seat.drop-target { outline: 3px dashed #f9a8d4; outline-offset: 2px; transform: scale(1.06); }
     .drag-ghost { position: fixed; pointer-events: none; z-index: 300; transform: translate(-50%, -50%) scale(1.05); background: #be185d; color: #fff; border: 2px solid #f9a8d4; border-radius: 10px; padding: 10px 16px; font-weight: bold; font-size: 15px; box-shadow: 0 8px 20px rgba(0,0,0,0.5); white-space: nowrap; }
     .seat { min-height: 48px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
@@ -64,10 +67,11 @@
 </head>
 <body>
 
-  <h1>🔗 201座位表 <span id="syncStatus" style="font-size:14px; color:#94a3b8;">(載入中…)</span></h1>
+  <h1>🔗 <span id="classTitle">201</span>座位表 <span id="syncStatus" style="font-size:14px; color:#94a3b8;">(載入中…)</span></h1>
   
   <div class="panel">
     <button class="name-btn" onclick="openNameModal()">📋 學生名單</button>
+    <button class="name-btn" onclick="editClassName()">🏫 修改班級</button>
 
     <div class="starter-picker">
       <label>🎯 首位：</label>
@@ -82,6 +86,7 @@
     <div class="current-badge" id="currentBox">目前：1 號</div>
     <div class="next-badge" id="nextBox">下一位：? 號</div>
 
+    <button class="swap-btn" id="viewToggleBtn" onclick="toggleViewMode()">👨‍🏫 老師視角</button>
     <button class="image-btn" onclick="exportToImage()">🖼️ 匯出 PNG 圖片</button>
     <button class="export-btn" onclick="exportToCSV()">📥 匯出 CSV</button>
     <button class="export-btn" onclick="window.print()">🖨️ 列印座位表</button>
@@ -106,7 +111,7 @@
 
   <div class="modal" id="nameModal">
     <div class="modal-content">
-      <h3 style="margin-top:0; color:#38bdf8;">📋 貼上 201 班學生名單</h3>
+      <h3 style="margin-top:0; color:#38bdf8;">📋 貼上 <span id="classTitleModal">201</span> 學生名單</h3>
       <p style="font-size:13px; color:#94a3b8;">一行一個名字，自動依序對應 1 ~ 36 號：</p>
       <textarea id="nameInputText" rows="10" style="width:95%; font-size:14px; margin-bottom:10px;"></textarea>
       <div style="text-align:right;">
@@ -131,6 +136,9 @@
 
     let isSpinning = false;
     let isSwapMode = false;
+    let className = '201';
+    let isTeacherView = true;
+    try { const v = localStorage.getItem('201_SEAT_VIEW_MODE'); if (v) isTeacherView = (v === 'teacher'); } catch (e) {}
     let isAssignMode = false;
     let assignSeatIdx = -1;
     let swapSelected = -1;
@@ -138,7 +146,7 @@
     let cloudDoc = null, cloudWriting = false, cloudDirty = false;
 
     function stateObject() {
-      return { studentNames, seats, drawnStudents, historyLog, currentStudentId, isGameStarted };
+      return { className, studentNames, seats, drawnStudents, historyLog, currentStudentId, isGameStarted };
     }
 
     function canon(o) {
@@ -161,6 +169,7 @@
       historyLog = c.historyLog || [];
       currentStudentId = c.currentStudentId || 1;
       isGameStarted = !!c.isGameStarted;
+      if (typeof c.className === 'string' && c.className.trim()) className = c.className.trim();
     }
 
     function setSync(text, color) {
@@ -201,6 +210,7 @@
     }
 
     function refreshUI() {
+      applyClassName();
       initStarterSelect();
       render();
       renderHistory();
@@ -324,6 +334,36 @@
     }
 
     function seatOf(id) { return seats.findIndex(s => s.assignedStudentId === id); }
+
+    function safeClassName() { return className.replace(/[\\/:*?"<>|]/g, '_'); }
+
+    function applyClassName() {
+      document.getElementById('classTitle').textContent = className;
+      document.getElementById('classTitleModal').textContent = className;
+      document.title = `${className}座位表 (支援圖片匯出)`;
+    }
+
+    function editClassName() {
+      const v = prompt('請輸入班級名稱（例如：201、三年二班）', className);
+      if (v === null) return;
+      const name = v.trim();
+      if (!name) return;
+      className = name;
+      saveData();
+      applyClassName();
+    }
+
+    function applyViewMode() {
+      document.getElementById('exportArea').classList.toggle('teacher-view', isTeacherView);
+      document.getElementById('viewToggleBtn').innerText = isTeacherView ? '👨‍🏫 老師視角（點我切換）' : '🎓 學生視角（點我切換）';
+    }
+
+    function toggleViewMode() {
+      isTeacherView = !isTeacherView;
+      try { localStorage.setItem('201_SEAT_VIEW_MODE', isTeacherView ? 'teacher' : 'student'); } catch (e) {}
+      applyViewMode();
+      render();
+    }
 
     function toggleAssignMode() {
       if (isSpinning) return;
@@ -550,6 +590,7 @@
           div.onclick = () => startSeatInput(idx);
         }
         div.dataset.idx = idx;
+        div.style.order = isTeacherView ? (seats.length - 1 - idx) : idx;
         if (isSwapMode) {
           div.style.cursor = seat.assignedStudentId !== null ? 'grab' : 'pointer';
           div.style.touchAction = 'none';
@@ -735,41 +776,46 @@
       ctx.fillStyle = '#38bdf8';
       ctx.font = 'bold 36px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('201 班級座位表', width / 2, 60);
+      ctx.fillText(isTeacherView ? `${className} 座位表（老師視角：由講台面向學生）` : `${className} 座位表（學生視角）`, width / 2, 60);
+
+      // 老師視角：黑板與講桌在下方，座位旋轉 180°
+      const bbY = isTeacherView ? 815 : 90;
+      const podY = isTeacherView ? 765 : 145;
 
       // 黑板區
       ctx.fillStyle = '#14532d';
       ctx.strokeStyle = '#166534';
       ctx.lineWidth = 4;
-      ctx.fillRect(width * 0.15, 90, width * 0.7, 45);
-      ctx.strokeRect(width * 0.15, 90, width * 0.7, 45);
+      ctx.fillRect(width * 0.15, bbY, width * 0.7, 45);
+      ctx.strokeRect(width * 0.15, bbY, width * 0.7, 45);
       ctx.fillStyle = '#f0fdf4';
       ctx.font = 'bold 22px sans-serif';
-      ctx.fillText('【 黑 板 / 螢 幕 區 】', width / 2, 120);
+      ctx.fillText('【 黑 板 / 螢 幕 區 】', width / 2, bbY + 30);
 
       // 講桌
       ctx.fillStyle = '#78350f';
       ctx.strokeStyle = '#b45309';
       ctx.lineWidth = 3;
-      ctx.fillRect(width * 0.36, 145, width * 0.28, 35);
-      ctx.strokeRect(width * 0.36, 145, width * 0.28, 35);
+      ctx.fillRect(width * 0.36, podY, width * 0.28, 35);
+      ctx.strokeRect(width * 0.36, podY, width * 0.28, 35);
       ctx.fillStyle = '#fef3c7';
       ctx.font = 'bold 18px sans-serif';
-      ctx.fillText('🏫 講 桌（教師位）', width / 2, 168);
+      ctx.fillText('🏫 講 桌（教師位）', width / 2, podY + 23);
 
       // 座位 6x6 陣列
       const cols = 6;
       const rows = 6;
       const startX = 80;
-      const startY = 210;
+      const startY = isTeacherView ? 100 : 210;
       const cellW = 160;
       const cellH = 95;
       const gapX = 15;
       const gapY = 15;
 
       seats.forEach((seat, idx) => {
-        const c = idx % cols;
-        const r = Math.floor(idx / cols);
+        const pos = isTeacherView ? seats.length - 1 - idx : idx;
+        const c = pos % cols;
+        const r = Math.floor(pos / cols);
         const x = startX + c * (cellW + gapX);
         const y = startY + r * (cellH + gapY);
 
@@ -806,7 +852,7 @@
       const imageURL = canvas.toDataURL('image/png');
       const a = document.createElement('a');
       a.href = imageURL;
-      a.download = `201座位表_圖片檔_${new Date().toISOString().slice(0,10)}.png`;
+      a.download = `${safeClassName()}座位表_圖片檔_${new Date().toISOString().slice(0,10)}.png`;
       a.click();
     }
 
@@ -829,7 +875,7 @@
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `201座位表_抽籤紀錄_${new Date().toISOString().slice(0,10)}.csv`;
+      a.download = `${safeClassName()}座位表_抽籤紀錄_${new Date().toISOString().slice(0,10)}.csv`;
       a.click();
     }
 
@@ -851,12 +897,10 @@
     }
 
     loadData();
+    applyViewMode();
     refreshUI();
     initCloud();
   </script>
 </body>
 </html>
-
-
-
 
