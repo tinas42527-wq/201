@@ -73,6 +73,7 @@
 
     <button class="edit-btn" id="editToggleBtn" onclick="toggleEditMode()">✏️ 編輯號碼</button>
     <button class="swap-btn" id="swapToggleBtn" onclick="toggleSwapMode()">🔀 手動換座位</button>
+    <button class="name-btn" onclick="openAssignModal()">✍️ 手動指定座位</button>
     <button class="draw-btn" id="drawBtn" onclick="startChainDraw()">🎲 抽座位</button>
 
     <div class="current-badge" id="currentBox">目前：1 號</div>
@@ -108,6 +109,24 @@
       <div style="text-align:right;">
         <button onclick="closeNameModal()" style="background:#64748b; color:white; margin-right:5px;">取消</button>
         <button onclick="saveStudentNames()" style="background:#22c55e; color:white;">💾 儲存名單</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="assignModal">
+    <div class="modal-content">
+      <h3 style="margin-top:0; color:#38bdf8;">✍️ 手動指定座位</h3>
+      <p style="font-size:13px; color:#94a3b8;">選擇學生，輸入座位號碼後按「指定」（可連續指定）：</p>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
+        <select id="assignStudent" onchange="updateAssignHint()" style="flex:1; min-width:170px;"></select>
+        <input id="assignSeat" list="seatLabelList" placeholder="座位號碼" autocomplete="off" oninput="updateAssignHint()" onkeydown="if(event.key==='Enter') doAssign()" style="width:110px;">
+        <datalist id="seatLabelList"></datalist>
+      </div>
+      <div id="assignHint" style="font-size:13px; color:#94a3b8; min-height:38px;"></div>
+      <div style="text-align:right;">
+        <button onclick="closeAssignModal()" style="background:#64748b; color:white; margin-right:5px;">關閉</button>
+        <button onclick="removeSeat()" style="background:#ef4444; color:white; margin-right:5px;">移除此生座位</button>
+        <button onclick="doAssign()" style="background:#22c55e; color:white;">✅ 指定</button>
       </div>
     </div>
   </div>
@@ -198,11 +217,10 @@
       initStarterSelect();
       render();
       renderHistory();
-      const last = [...historyLog].reverse().find(h => !h.type);
-      document.getElementById('nextBox').innerText = !last ? '下一位：? 號'
-        : (last.nextStudentId ? `👉 下一位接棒：${getStudentDisplayName(last.nextStudentId)}` : '🎉 全班完成！');
-      const free = seats.some(s => s.assignedStudentId === null);
-      document.getElementById('drawBtn').disabled = !free || (last && !last.nextStudentId);
+      const done = drawnStudents.length >= TOTAL_SEATS || !seats.some(s => s.assignedStudentId === null);
+      document.getElementById('nextBox').innerText = done ? '🎉 全班完成！'
+        : (drawnStudents.length === 0 ? '下一位：? 號' : `👉 下一位接棒：${getStudentDisplayName(currentStudentId)}`);
+      document.getElementById('drawBtn').disabled = done;
     }
 
     async function initCloud() {
@@ -219,7 +237,7 @@
           return;
         }
         setSync('☁️ 已同步到雲端（換電腦也能用）', '#22c55e');
-        if (isSpinning || cloudWriting || cloudDirty || isEditingMode || isSwapMode) return;
+        if (isSpinning || cloudWriting || cloudDirty || isEditingMode || isSwapMode || document.getElementById('assignModal').style.display === 'flex') return;
         const remote = snap.data();
         const before = canon(stateObject());
         applyState(remote);
@@ -293,6 +311,11 @@
 
     function setStarter(num) {
       if (isGameStarted) return;
+      if (drawnStudents.includes(parseInt(num))) {
+        alert('這位學生已經有座位了，請選擇其他人。');
+        initStarterSelect();
+        return;
+      }
       currentStudentId = parseInt(num);
       saveData();
       render();
@@ -310,6 +333,108 @@
     function updateSeatLabel(idx, newLabel) {
       seats[idx].label = newLabel.trim() || `${idx + 1}`;
       saveData();
+    }
+
+    function seatOf(id) { return seats.findIndex(s => s.assignedStudentId === id); }
+    function findSeatIdx(lab) { return seats.findIndex(s => String(s.label).trim() === lab); }
+
+    function fillAssignOptions(keepId) {
+      const sel = document.getElementById('assignStudent');
+      sel.innerHTML = '';
+      for (let i = 1; i <= TOTAL_SEATS; i++) {
+        const si = seatOf(i);
+        const opt = document.createElement('option');
+        opt.value = i;
+        opt.textContent = `${getStudentDisplayName(i)}｜${si >= 0 ? '座位 ' + seats[si].label : '尚未入座'}`;
+        sel.appendChild(opt);
+      }
+      if (keepId) sel.value = keepId;
+      document.getElementById('seatLabelList').innerHTML = seats.map(s => `<option value="${s.label}"></option>`).join('');
+    }
+
+    function openAssignModal() {
+      if (isSpinning) return;
+      if (isEditingMode) toggleEditMode();
+      if (isSwapMode) toggleSwapMode();
+      fillAssignOptions(currentStudentId);
+      document.getElementById('assignSeat').value = '';
+      updateAssignHint();
+      document.getElementById('assignModal').style.display = 'flex';
+      document.getElementById('assignSeat').focus();
+    }
+
+    function closeAssignModal() {
+      document.getElementById('assignModal').style.display = 'none';
+    }
+
+    function updateAssignHint() {
+      const hint = document.getElementById('assignHint');
+      const sid = parseInt(document.getElementById('assignStudent').value);
+      const lab = document.getElementById('assignSeat').value.trim();
+      if (!lab) { hint.textContent = ''; return; }
+      const idx = findSeatIdx(lab);
+      if (idx < 0) { hint.textContent = `⚠️ 找不到座位「${lab}」`; return; }
+      const occ = seats[idx].assignedStudentId, cur = seatOf(sid);
+      if (occ === sid) hint.textContent = '此學生已經坐在這個座位。';
+      else if (occ !== null && cur >= 0) hint.textContent = `座位已有 ${getStudentDisplayName(occ)}，將與他互換座位。`;
+      else if (occ !== null) hint.textContent = `⚠️ 座位已有 ${getStudentDisplayName(occ)}，指定後他會變成「未入座」。`;
+      else hint.textContent = '座位是空的，可直接指定。';
+    }
+
+    function doAssign() {
+      const sel = document.getElementById('assignStudent');
+      const input = document.getElementById('assignSeat');
+      const sid = parseInt(sel.value);
+      const lab = input.value.trim();
+      if (!lab) return;
+      const idx = findSeatIdx(lab);
+      if (idx < 0) { alert(`找不到座位「${lab}」`); return; }
+      const cur = seatOf(sid), occ = seats[idx].assignedStudentId;
+      if (cur === idx) { input.value = ''; updateAssignHint(); return; }
+      if (occ !== null && cur < 0 && !confirm(`座位【${lab}】目前是 ${getStudentDisplayName(occ)}，指定後他會變成未入座，確定嗎？`)) return;
+
+      let note = '（手動指定）', other = null;
+      if (occ !== null && cur >= 0) {
+        seats[cur].assignedStudentId = occ;
+        seats[idx].assignedStudentId = sid;
+        other = occ;
+        note = null;
+      } else {
+        if (cur >= 0) seats[cur].assignedStudentId = null;
+        seats[idx].assignedStudentId = sid;
+        if (occ !== null) {
+          drawnStudents = drawnStudents.filter(x => x !== occ);
+          note = `（取代 ${getStudentDisplayName(occ)}，他變為未入座）`;
+        }
+      }
+      if (!drawnStudents.includes(sid)) drawnStudents.push(sid);
+      if (drawnStudents.includes(currentStudentId)) {
+        const nx = getNextStudentId(null);
+        if (nx) currentStudentId = nx;
+      }
+      const entry = { type: 'swap', studentId: sid, seatLabel: seats[idx].label, otherStudentId: other };
+      if (note) entry.note = note;
+      historyLog.push(entry);
+
+      saveData();
+      refreshUI();
+      fillAssignOptions(Math.min(sid + 1, TOTAL_SEATS));
+      input.value = '';
+      updateAssignHint();
+      input.focus();
+    }
+
+    function removeSeat() {
+      const sid = parseInt(document.getElementById('assignStudent').value);
+      const cur = seatOf(sid);
+      if (cur < 0) { alert(`${getStudentDisplayName(sid)} 目前沒有座位。`); return; }
+      seats[cur].assignedStudentId = null;
+      drawnStudents = drawnStudents.filter(x => x !== sid);
+      currentStudentId = sid;
+      saveData();
+      refreshUI();
+      fillAssignOptions(sid);
+      updateAssignHint();
     }
 
     function toggleSwapMode() {
@@ -390,7 +515,7 @@
         list.innerHTML = '<div style="color:#64748b;">尚未開始抽籤，紀錄將於抽籤後自動寫入...</div>';
         return;
       }
-      list.innerHTML = historyLog.map(item => item.type === 'swap' ? `<div class="history-item" style="color:#f472b6;">🔀 手動調整 ➔ ${getStudentDisplayName(item.studentId)} 換到座位【${item.seatLabel}】${item.otherStudentId ? `（與 ${getStudentDisplayName(item.otherStudentId)} 互換）` : '（原位置清空）'}</div>` : `
+      list.innerHTML = historyLog.map(item => item.type === 'swap' ? `<div class="history-item" style="color:#f472b6;">🔀 手動調整 ➔ ${getStudentDisplayName(item.studentId)} 換到座位【${item.seatLabel}】${item.otherStudentId ? `（與 ${getStudentDisplayName(item.otherStudentId)} 互換）` : (item.note || '（原位置清空）')}</div>` : `
         <div class="history-item">
           步數 ${item.step} ➔ 👤 ${getStudentDisplayName(item.studentId)} 抽中座位【${item.seatLabel}】 (接棒：${item.nextStudentId ? getStudentDisplayName(item.nextStudentId) : '🎉 全班完成'})
         </div>
@@ -582,7 +707,7 @@
       let csvContent = "\uFEFF步數,學生座號,學生姓名,抽中座位號碼,接棒學生\n";
       historyLog.forEach(item => {
         if (item.type === 'swap') {
-          csvContent += `手動調整,${item.studentId},${studentNames[item.studentId - 1] || ''},${item.seatLabel},${item.otherStudentId ? '與' + item.otherStudentId + '號互換' : '移到空位'}\n`;
+          csvContent += `手動調整,${item.studentId},${studentNames[item.studentId - 1] || ''},${item.seatLabel},${item.otherStudentId ? '與' + item.otherStudentId + '號互換' : (item.note ? item.note.replace(/[（）]/g, '') : '移到空位')}\n`;
           return;
         }
         const studentName = studentNames[item.studentId - 1] || '';
@@ -620,3 +745,4 @@
   </script>
 </body>
 </html>
+
