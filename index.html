@@ -25,6 +25,9 @@
     button.name-btn { background: #a855f7; color: white; }
     button.reset-btn { background: #ef4444; color: white; }
     button.swap-btn { background: #f472b6; color: #0f172a; }
+    .seat.dragging { opacity: 0.35; }
+    .seat.drop-target { outline: 3px dashed #f9a8d4; outline-offset: 2px; transform: scale(1.06); }
+    .drag-ghost { position: fixed; pointer-events: none; z-index: 300; transform: translate(-50%, -50%) scale(1.05); background: #be185d; color: #fff; border: 2px solid #f9a8d4; border-radius: 10px; padding: 10px 16px; font-weight: bold; font-size: 15px; box-shadow: 0 8px 20px rgba(0,0,0,0.5); white-space: nowrap; }
     .seat { min-height: 48px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
     .seat.selected { background: #be185d; border-color: #f9a8d4; color: #fff; transform: scale(1.06); box-shadow: 0 0 16px #f472b6; }
 
@@ -73,7 +76,7 @@
 
     <button class="edit-btn" id="editToggleBtn" onclick="toggleEditMode()">✏️ 編輯號碼</button>
     <button class="swap-btn" id="swapToggleBtn" onclick="toggleSwapMode()">🔀 手動換座位</button>
-    <button class="name-btn" onclick="openAssignModal()">✍️ 手動指定座位</button>
+    <button class="name-btn" id="assignToggleBtn" onclick="toggleAssignMode()">✍️ 手動指定座位</button>
     <button class="draw-btn" id="drawBtn" onclick="startChainDraw()">🎲 抽座位</button>
 
     <div class="current-badge" id="currentBox">目前：1 號</div>
@@ -113,24 +116,6 @@
     </div>
   </div>
 
-  <div class="modal" id="assignModal">
-    <div class="modal-content">
-      <h3 style="margin-top:0; color:#38bdf8;">✍️ 手動指定座位</h3>
-      <p style="font-size:13px; color:#94a3b8;">選擇學生，輸入座位號碼後按「指定」（可連續指定）：</p>
-      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:8px;">
-        <select id="assignStudent" onchange="updateAssignHint()" style="flex:1; min-width:170px;"></select>
-        <input id="assignSeat" list="seatLabelList" placeholder="座位號碼" autocomplete="off" oninput="updateAssignHint()" onkeydown="if(event.key==='Enter') doAssign()" style="width:110px;">
-        <datalist id="seatLabelList"></datalist>
-      </div>
-      <div id="assignHint" style="font-size:13px; color:#94a3b8; min-height:38px;"></div>
-      <div style="text-align:right;">
-        <button onclick="closeAssignModal()" style="background:#64748b; color:white; margin-right:5px;">關閉</button>
-        <button onclick="removeSeat()" style="background:#ef4444; color:white; margin-right:5px;">移除此生座位</button>
-        <button onclick="doAssign()" style="background:#22c55e; color:white;">✅ 指定</button>
-      </div>
-    </div>
-  </div>
-
   <script>
     const TOTAL_SEATS = 36;
     const STORAGE_KEY = '201_SEAT_PICKER_WITH_IMAGE_DATA';
@@ -146,6 +131,8 @@
 
     let isSpinning = false;
     let isSwapMode = false;
+    let isAssignMode = false;
+    let assignSeatIdx = -1;
     let swapSelected = -1;
     const CLOUD_PATH = 'seating/state';
     let cloudDoc = null, cloudWriting = false, cloudDirty = false;
@@ -237,7 +224,7 @@
           return;
         }
         setSync('☁️ 已同步到雲端（換電腦也能用）', '#22c55e');
-        if (isSpinning || cloudWriting || cloudDirty || isEditingMode || isSwapMode || document.getElementById('assignModal').style.display === 'flex') return;
+        if (isSpinning || cloudWriting || cloudDirty || isEditingMode || isSwapMode || isAssignMode) return;
         const remote = snap.data();
         const before = canon(stateObject());
         applyState(remote);
@@ -324,6 +311,7 @@
     function toggleEditMode() {
       if (isGameStarted) return;
       if (isSwapMode) toggleSwapMode();
+      if (isAssignMode) toggleAssignMode();
       isEditingMode = !isEditingMode;
       const btn = document.getElementById('editToggleBtn');
       btn.innerText = isEditingMode ? '💾 完成修改' : '✏️ 編輯號碼';
@@ -336,62 +324,76 @@
     }
 
     function seatOf(id) { return seats.findIndex(s => s.assignedStudentId === id); }
-    function findSeatIdx(lab) { return seats.findIndex(s => String(s.label).trim() === lab); }
 
-    function fillAssignOptions(keepId) {
-      const sel = document.getElementById('assignStudent');
-      sel.innerHTML = '';
-      for (let i = 1; i <= TOTAL_SEATS; i++) {
-        const si = seatOf(i);
-        const opt = document.createElement('option');
-        opt.value = i;
-        opt.textContent = `${getStudentDisplayName(i)}｜${si >= 0 ? '座位 ' + seats[si].label : '尚未入座'}`;
-        sel.appendChild(opt);
-      }
-      if (keepId) sel.value = keepId;
-      document.getElementById('seatLabelList').innerHTML = seats.map(s => `<option value="${s.label}"></option>`).join('');
-    }
-
-    function openAssignModal() {
+    function toggleAssignMode() {
       if (isSpinning) return;
       if (isEditingMode) toggleEditMode();
       if (isSwapMode) toggleSwapMode();
-      fillAssignOptions(currentStudentId);
-      document.getElementById('assignSeat').value = '';
-      updateAssignHint();
-      document.getElementById('assignModal').style.display = 'flex';
-      document.getElementById('assignSeat').focus();
+      isAssignMode = !isAssignMode;
+      assignSeatIdx = -1;
+      document.getElementById('assignToggleBtn').innerText = isAssignMode ? '✅ 完成指定' : '✍️ 手動指定座位';
+      render();
     }
 
-    function closeAssignModal() {
-      document.getElementById('assignModal').style.display = 'none';
+    function startSeatInput(idx) {
+      if (isSpinning || !isAssignMode || idx === assignSeatIdx) return;
+      assignSeatIdx = idx;
+      render();
     }
 
-    function updateAssignHint() {
-      const hint = document.getElementById('assignHint');
-      const sid = parseInt(document.getElementById('assignStudent').value);
-      const lab = document.getElementById('assignSeat').value.trim();
-      if (!lab) { hint.textContent = ''; return; }
-      const idx = findSeatIdx(lab);
-      if (idx < 0) { hint.textContent = `⚠️ 找不到座位「${lab}」`; return; }
-      const occ = seats[idx].assignedStudentId, cur = seatOf(sid);
-      if (occ === sid) hint.textContent = '此學生已經坐在這個座位。';
-      else if (occ !== null && cur >= 0) hint.textContent = `座位已有 ${getStudentDisplayName(occ)}，將與他互換座位。`;
-      else if (occ !== null) hint.textContent = `⚠️ 座位已有 ${getStudentDisplayName(occ)}，指定後他會變成「未入座」。`;
-      else hint.textContent = '座位是空的，可直接指定。';
+    function cancelSeatInput() {
+      assignSeatIdx = -1;
+      render();
     }
 
-    function doAssign() {
-      const sel = document.getElementById('assignStudent');
-      const input = document.getElementById('assignSeat');
-      const sid = parseInt(sel.value);
-      const lab = input.value.trim();
-      if (!lab) return;
-      const idx = findSeatIdx(lab);
-      if (idx < 0) { alert(`找不到座位「${lab}」`); return; }
-      const cur = seatOf(sid), occ = seats[idx].assignedStudentId;
-      if (cur === idx) { input.value = ''; updateAssignHint(); return; }
-      if (occ !== null && cur < 0 && !confirm(`座位【${lab}】目前是 ${getStudentDisplayName(occ)}，指定後他會變成未入座，確定嗎？`)) return;
+    function seatInputKey(e, idx) {
+      if (e.key === 'Enter') confirmSeatInput(idx);
+      else if (e.key === 'Escape') cancelSeatInput();
+    }
+
+    function seatInputHint(idx, raw) {
+      const occ = seats[idx].assignedStudentId;
+      if (raw === '') return occ !== null ? `目前：${getStudentDisplayName(occ)}\n（輸入 0 可清空）` : '輸入座號後按 Enter';
+      const n = parseInt(raw);
+      if (isNaN(n) || n < 0 || n > TOTAL_SEATS) return `⚠️ 沒有這個座號（1~${TOTAL_SEATS}）`;
+      if (n === 0) return occ !== null ? `將清空此座位（${getStudentDisplayName(occ)}）` : '此座位已是空位';
+      const cur = seatOf(n);
+      let extra = '';
+      if (occ === n) extra = '已在此座位';
+      else if (occ !== null && cur >= 0) extra = `與 ${getStudentDisplayName(occ)} 互換`;
+      else if (occ !== null) extra = `取代 ${getStudentDisplayName(occ)}（變未入座）`;
+      else if (cur >= 0) extra = `從座位 ${seats[cur].label} 移過來`;
+      return `👤 ${getStudentDisplayName(n)}` + (extra ? `\n${extra}` : '');
+    }
+
+    function previewSeatStudent(idx) {
+      const input = document.getElementById('seatStudentInput');
+      const box = document.getElementById('seatNamePreview');
+      if (input && box) box.innerText = seatInputHint(idx, input.value.trim());
+    }
+
+    function confirmSeatInput(idx) {
+      const raw = document.getElementById('seatStudentInput').value.trim();
+      if (raw === '') { cancelSeatInput(); return; }
+      const n = parseInt(raw);
+      if (isNaN(n) || n < 0 || n > TOTAL_SEATS) { previewSeatStudent(idx); return; }
+      const occ = seats[idx].assignedStudentId;
+
+      if (n === 0) {
+        if (occ !== null) {
+          seats[idx].assignedStudentId = null;
+          drawnStudents = drawnStudents.filter(x => x !== occ);
+          currentStudentId = occ;
+          saveData();
+        }
+        assignSeatIdx = -1;
+        refreshUI();
+        return;
+      }
+
+      const sid = n, cur = seatOf(sid);
+      if (cur === idx) { cancelSeatInput(); return; }
+      if (occ !== null && cur < 0 && !confirm(`座位【${seats[idx].label}】目前是 ${getStudentDisplayName(occ)}，指定後他會變成未入座，確定嗎？`)) return;
 
       let note = '（手動指定）', other = null;
       if (occ !== null && cur >= 0) {
@@ -416,30 +418,15 @@
       if (note) entry.note = note;
       historyLog.push(entry);
 
+      assignSeatIdx = -1;
       saveData();
       refreshUI();
-      fillAssignOptions(Math.min(sid + 1, TOTAL_SEATS));
-      input.value = '';
-      updateAssignHint();
-      input.focus();
-    }
-
-    function removeSeat() {
-      const sid = parseInt(document.getElementById('assignStudent').value);
-      const cur = seatOf(sid);
-      if (cur < 0) { alert(`${getStudentDisplayName(sid)} 目前沒有座位。`); return; }
-      seats[cur].assignedStudentId = null;
-      drawnStudents = drawnStudents.filter(x => x !== sid);
-      currentStudentId = sid;
-      saveData();
-      refreshUI();
-      fillAssignOptions(sid);
-      updateAssignHint();
     }
 
     function toggleSwapMode() {
       if (isSpinning) return;
       if (isEditingMode) toggleEditMode();
+      if (isAssignMode) toggleAssignMode();
       isSwapMode = !isSwapMode;
       swapSelected = -1;
       document.getElementById('swapToggleBtn').innerText = isSwapMode ? '✅ 完成換位' : '🔀 手動換座位';
@@ -447,7 +434,7 @@
     }
 
     function onSeatClick(idx) {
-      if (isSpinning || !isSwapMode) return;
+      if (isSpinning || !isSwapMode || suppressClick) return;
       if (swapSelected === -1) {
         if (seats[idx].assignedStudentId === null) return;
         swapSelected = idx;
@@ -459,8 +446,13 @@
         render();
         return;
       }
-      const a = seats[swapSelected], b = seats[idx];
+      performSwap(swapSelected, idx);
+    }
+
+    function performSwap(from, to) {
+      const a = seats[from], b = seats[to];
       const sid = a.assignedStudentId, tid = b.assignedStudentId;
+      if (from === to || sid === null) return;
       a.assignedStudentId = tid;
       b.assignedStudentId = sid;
       historyLog.push({ type: 'swap', studentId: sid, seatLabel: b.label, fromSeatLabel: a.label, otherStudentId: tid });
@@ -468,6 +460,76 @@
       saveData();
       render();
       renderHistory();
+    }
+
+    let dragState = null, suppressClick = false;
+
+    function gridSeat(i) { return document.getElementById('grid').children[i]; }
+
+    function seatIdxAt(x, y) {
+      const el = document.elementFromPoint(x, y);
+      const s = el && el.closest ? el.closest('.seat') : null;
+      return s && s.dataset.idx !== undefined ? parseInt(s.dataset.idx) : -1;
+    }
+
+    function startDrag(e, idx) {
+      if (!isSwapMode || isSpinning || e.button > 0) return;
+      if (seats[idx].assignedStudentId === null) return;
+      dragState = { idx, startX: e.clientX, startY: e.clientY, moved: false, ghost: null, over: -1 };
+      window.addEventListener('pointermove', onDragMove);
+      window.addEventListener('pointerup', onDragEnd);
+      window.addEventListener('pointercancel', onDragCancel);
+    }
+
+    function onDragMove(e) {
+      const d = dragState;
+      if (!d) return;
+      if (!d.moved) {
+        if (Math.hypot(e.clientX - d.startX, e.clientY - d.startY) < 6) return;
+        d.moved = true;
+        const g = document.createElement('div');
+        g.className = 'drag-ghost';
+        g.textContent = '👤 ' + getStudentDisplayName(seats[d.idx].assignedStudentId);
+        document.body.appendChild(g);
+        d.ghost = g;
+        gridSeat(d.idx).classList.add('dragging');
+      }
+      d.ghost.style.left = e.clientX + 'px';
+      d.ghost.style.top = e.clientY + 'px';
+      let o = seatIdxAt(e.clientX, e.clientY);
+      if (o === d.idx) o = -1;
+      if (o !== d.over) {
+        if (d.over >= 0) gridSeat(d.over).classList.remove('drop-target');
+        if (o >= 0) gridSeat(o).classList.add('drop-target');
+        d.over = o;
+      }
+    }
+
+    function endDragCleanup() {
+      const d = dragState;
+      dragState = null;
+      window.removeEventListener('pointermove', onDragMove);
+      window.removeEventListener('pointerup', onDragEnd);
+      window.removeEventListener('pointercancel', onDragCancel);
+      if (d && d.moved) {
+        if (d.ghost) d.ghost.remove();
+        gridSeat(d.idx).classList.remove('dragging');
+        if (d.over >= 0) gridSeat(d.over).classList.remove('drop-target');
+      }
+      return d;
+    }
+
+    function onDragEnd(e) {
+      const d = endDragCleanup();
+      if (!d || !d.moved) return;
+      suppressClick = true;
+      setTimeout(() => { suppressClick = false; }, 0);
+      const o = seatIdxAt(e.clientX, e.clientY);
+      if (o >= 0 && o !== d.idx) performSwap(d.idx, o);
+    }
+
+    function onDragCancel() {
+      endDragCleanup();
     }
 
     function render(highlightIdx = -1) {
@@ -482,13 +544,28 @@
         else if (seat.assignedStudentId !== null) stateClass = 'taken';
         else if (isEditingMode) stateClass = 'editing';
 
-        div.className = `seat ${stateClass}` + (isSwapMode && idx === swapSelected ? ' selected' : '');
-        if (isSwapMode) {
+        div.className = `seat ${stateClass}` + ((isSwapMode && idx === swapSelected) || (isAssignMode && idx === assignSeatIdx) ? ' selected' : '');
+        if (isAssignMode) {
           div.style.cursor = 'pointer';
+          div.onclick = () => startSeatInput(idx);
+        }
+        div.dataset.idx = idx;
+        if (isSwapMode) {
+          div.style.cursor = seat.assignedStudentId !== null ? 'grab' : 'pointer';
+          div.style.touchAction = 'none';
+          div.style.userSelect = 'none';
+          div.onpointerdown = e => startDrag(e, idx);
           div.onclick = () => onSeatClick(idx);
         }
 
-        if (isEditingMode && seat.assignedStudentId === null) {
+        if (isAssignMode && idx === assignSeatIdx) {
+          div.innerHTML = `
+            <span style="font-size:12px; opacity:0.85;">【座位 ${seat.label}】輸入座號：</span>
+            <input type="number" id="seatStudentInput" min="0" max="${TOTAL_SEATS}" style="width:64px; text-align:center; font-size:15px; font-weight:bold; margin-top:4px;" oninput="previewSeatStudent(${idx})" onkeydown="seatInputKey(event, ${idx})" onclick="event.stopPropagation()">
+            <div id="seatNamePreview" style="font-size:12px; margin-top:4px; min-height:16px; white-space:pre-line;"></div>
+          `;
+          div.querySelector('#seatNamePreview').innerText = seatInputHint(idx, '');
+        } else if (isEditingMode && seat.assignedStudentId === null) {
           div.innerHTML = `
             <span style="font-size:12px; opacity:0.7;">位置 ${idx + 1}：</span><br>
             <input type="text" class="seat-num-input" value="${seat.label}" onchange="updateSeatLabel(${idx}, this.value)" onclick="event.stopPropagation()">
@@ -507,6 +584,8 @@
       });
 
       document.getElementById('currentBox').innerText = `目前：${getStudentDisplayName(currentStudentId)}`;
+      const ai = document.getElementById('seatStudentInput');
+      if (ai) { ai.focus(); ai.select(); }
     }
 
     function renderHistory() {
@@ -538,6 +617,7 @@
     function startChainDraw() {
       if (isEditingMode) toggleEditMode();
       if (isSwapMode) toggleSwapMode();
+      if (isAssignMode) toggleAssignMode();
       initAudio();
       
       if (!isGameStarted) {
@@ -745,4 +825,6 @@
   </script>
 </body>
 </html>
+
+
 
