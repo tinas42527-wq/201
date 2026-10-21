@@ -4,19 +4,10 @@
   <meta charset="UTF-8">
   <title>201座位表 (支援圖片匯出)</title>
   <style>
-    html, body { height: 100%; }
-    body { font-family: 'Segoe UI', Arial, sans-serif; background: #0f172a; color: #f8fafc; text-align: center; padding: 0; margin: 0; display: flex; height: 100vh; overflow: hidden; }
-    h1 { font-size: 1.5rem; color: #38bdf8; margin: 0 0 10px; text-shadow: 0 0 10px rgba(56, 189, 248, 0.5); }
+    body { font-family: 'Segoe UI', Arial, sans-serif; background: #0f172a; color: #f8fafc; text-align: center; padding: 20px; margin: 0; }
+    h1 { font-size: 2.2rem; color: #38bdf8; margin-bottom: 5px; text-shadow: 0 0 10px rgba(56, 189, 248, 0.5); }
     
-    .sidebar { width: 300px; flex: 0 0 300px; height: 100vh; box-sizing: border-box; overflow-y: auto; padding: 14px 12px; background: #111c33; border-right: 2px solid #334155; }
-    .main { flex: 1; min-width: 0; height: 100vh; box-sizing: border-box; padding: 12px; display: flex; }
-    .panel { background: #1e293b; border: 2px solid #334155; margin: 0 0 12px; padding: 12px; border-radius: 12px; display: grid; grid-template-columns: 1fr 1fr; align-items: stretch; gap: 8px; }
-    .panel > * { min-width: 0; }
-    .panel button { width: 100%; padding: 8px 6px; }
-    .span2 { grid-column: 1 / -1; }
-    .group-title { grid-column: 1 / -1; font-size: 12px; color: #94a3b8; text-align: left; border-bottom: 1px solid #334155; padding-bottom: 3px; margin-top: 4px; }
-    .starter-picker select { flex: 1; min-width: 0; }
-    .current-badge, .next-badge { box-sizing: border-box; }
+    .panel { background: #1e293b; border: 2px solid #334155; max-width: 980px; margin: 0 auto 20px; padding: 15px; border-radius: 12px; display: flex; justify-content: space-around; align-items: center; flex-wrap: wrap; gap: 8px; }
     
     .starter-picker { display: flex; align-items: center; gap: 6px; background: #0f172a; padding: 6px 12px; border-radius: 8px; border: 1px solid #475569; }
     select, input, textarea { font-size: 15px; padding: 6px 10px; border-radius: 6px; border: 1px solid #475569; background: #1e293b; color: white; }
@@ -40,50 +31,34 @@
     #exportArea.teacher-view .grid { width: 100%; }
     .seat.drop-target { outline: 3px dashed #f9a8d4; outline-offset: 2px; transform: scale(1.06); }
     .drag-ghost { position: fixed; pointer-events: none; z-index: 300; transform: translate(-50%, -50%) scale(1.05); background: #be185d; color: #fff; border: 2px solid #f9a8d4; border-radius: 10px; padding: 10px 16px; font-weight: bold; font-size: 15px; box-shadow: 0 8px 20px rgba(0,0,0,0.5); white-space: nowrap; }
-    .seat { min-height: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    .seat { min-height: 48px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
     .seat.selected { background: #be185d; border-color: #f9a8d4; color: #fff; transform: scale(1.06); box-shadow: 0 0 16px #f472b6; }
 
     /* 需被截圖轉換的班級座位區域 */
-    #exportArea { background: #0f172a; padding: 8px; border-radius: 12px; flex: 1; min-width: 0; min-height: 0; margin: 0; display: flex; flex-direction: column; }
+    #exportArea { background: #0f172a; padding: 15px; border-radius: 12px; max-width: 980px; margin: 0 auto; }
 
-    .classroom-front { width: 100%; margin: 0 auto 10px; display: flex; flex-direction: column; align-items: center; gap: 6px; flex: 0 0 auto; }
-    .blackboard { background: #14532d; border: 4px solid #166534; color: #f0fdf4; width: 70%; padding: 6px; border-radius: 8px; font-size: 18px; font-weight: bold; letter-spacing: 6px; box-shadow: inset 0 0 10px rgba(0,0,0,0.5); }
-    .podium { background: #78350f; border: 3px solid #b45309; color: #fef3c7; width: 28%; padding: 5px; border-radius: 6px; font-size: 15px; font-weight: bold; letter-spacing: 2px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5); }
+    .classroom-front { max-width: 980px; margin: 0 auto 15px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+    .blackboard { background: #14532d; border: 4px solid #166534; color: #f0fdf4; width: 70%; padding: 10px; border-radius: 8px; font-size: 20px; font-weight: bold; letter-spacing: 6px; box-shadow: inset 0 0 10px rgba(0,0,0,0.5); }
+    .podium { background: #78350f; border: 3px solid #b45309; color: #fef3c7; width: 28%; padding: 8px; border-radius: 6px; font-size: 16px; font-weight: bold; letter-spacing: 2px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.5); }
 
-    .grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); grid-template-rows: repeat(6, minmax(0, 1fr)); gap: 10px; width: 100%; flex: 1; min-height: 0; margin: 0; }
-    .seat { background: #1e293b; border: 2px solid #334155; border-radius: 10px; padding: 4px 5px; font-size: clamp(13px, 2.2vh, 22px); font-weight: bold; transition: all 0.15s ease; }
+    .grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; max-width: 980px; margin: 0 auto; }
+    .seat { background: #1e293b; border: 2px solid #334155; border-radius: 10px; padding: 14px 5px; font-size: 15px; font-weight: bold; transition: all 0.15s ease; }
     .seat.empty { border-color: #475569; color: #94a3b8; }
     .seat.active { background: #38bdf8; border-color: #7dd3fc; color: #0f172a; transform: scale(1.08); box-shadow: 0 0 20px #38bdf8; z-index: 10; }
-    .seat.taken { background: #15803d; border-color: #4ade80; color: #f0fdf4; font-size: clamp(20px, 3.3vh, 33px); line-height: 1.25; }
+    .seat.taken { background: #15803d; border-color: #4ade80; color: #f0fdf4; }
     .seat.editing { border-color: #eab308; background: #292524; }
     .seat input.seat-num-input { width: 70%; text-align: center; font-size: 15px; font-weight: bold; background: #0f172a; color: #38bdf8; border: 1px solid #eab308; border-radius: 4px; }
 
-    .history-section { background: #1e293b; border: 2px solid #334155; margin: 0; padding: 12px; border-radius: 12px; text-align: left; }
-    .history-list { max-height: 260px; overflow-y: auto; background: #0f172a; border-radius: 6px; padding: 10px; font-family: monospace; font-size: 14px; }
+    .history-section { background: #1e293b; border: 2px solid #334155; max-width: 980px; margin: 20px auto 0; padding: 15px; border-radius: 12px; text-align: left; }
+    .history-list { max-height: 180px; overflow-y: auto; background: #0f172a; border-radius: 6px; padding: 10px; font-family: monospace; font-size: 14px; }
     .history-item { padding: 4px 0; border-bottom: 1px dashed #334155; color: #38bdf8; }
 
     .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 100; justify-content: center; align-items: center; }
     .modal-content { background: #1e293b; border: 2px solid #38bdf8; padding: 20px; border-radius: 12px; max-width: 500px; width: 90%; text-align: left; }
 
-    @media (max-width: 900px) {
-      body { display: block; height: auto; overflow: auto; }
-      .sidebar { width: auto; height: auto; flex: none; border-right: none; border-bottom: 2px solid #334155; }
-      .main { height: auto; display: block; padding: 8px; }
-      #exportArea { display: flex; }
-      .grid { grid-template-rows: none; gap: 8px; }
-      .seat { min-height: 56px; padding: 10px 4px; }
-    }
-
     @media print {
-      html, body { height: auto; }
-      body { background: white; color: black; display: block; overflow: visible; }
-      .sidebar { display: block; width: auto; height: auto; overflow: visible; padding: 0; background: none; border: none; }
-      .sidebar .panel, .sidebar .history-section, #syncStatus, button, .modal { display: none; }
-      h1 { color: black; text-shadow: none; }
-      .main { display: block; height: auto; padding: 0; }
-      #exportArea { background: white; height: auto; }
-      .grid { grid-template-rows: none; }
-      .seat { min-height: 64px; }
+      body { background: white; color: black; }
+      .panel, button, .history-section, .modal { display: none; }
       .blackboard { background: white; color: black; border: 2px solid black; }
       .podium { background: #eee; color: black; border: 2px solid black; }
       .seat { border: 1px solid black; color: black !important; background: white !important; }
@@ -92,36 +67,40 @@
 </head>
 <body>
 
-  <aside class="sidebar">
-    <h1>🔗 <span id="classTitle">201</span>座位表 <br><span id="syncStatus" style="font-size:13px; color:#94a3b8;">(載入中…)</span></h1>
+  <h1>🔗 <span id="classTitle">201</span>座位表 <span id="syncStatus" style="font-size:14px; color:#94a3b8;">(載入中…)</span></h1>
+  
+  <div class="panel">
+    <button class="name-btn" onclick="openNameModal()">📋 學生名單</button>
+    <button class="name-btn" onclick="editClassName()">🏫 修改班級</button>
 
-    <div class="panel">
-      <div class="starter-picker span2">
-        <label>🎯 首位：</label>
-        <select id="starterSelect" onchange="setStarter(this.value)"></select>
-      </div>
-
-      <button class="draw-btn span2" id="drawBtn" onclick="startChainDraw()">🎲 抽座位</button>
-
-      <div class="current-badge span2" id="currentBox">目前：1 號</div>
-      <div class="next-badge span2" id="nextBox">下一位：? 號</div>
-
-      <div class="group-title">調整座位</div>
-      <button class="edit-btn" id="editToggleBtn" onclick="toggleEditMode()">✏️ 編輯號碼</button>
-      <button class="swap-btn" id="swapToggleBtn" onclick="toggleSwapMode()">🔀 手動換座位</button>
-      <button class="name-btn span2" id="assignToggleBtn" onclick="toggleAssignMode()">✍️ 手動指定座位</button>
-
-      <div class="group-title">顯示 / 輸出</div>
-      <button class="swap-btn span2" id="viewToggleBtn" onclick="toggleViewMode()">👨‍🏫 老師視角</button>
-      <button class="image-btn span2" onclick="exportToImage()">🖼️ 匯出 PNG 圖片</button>
-      <button class="export-btn" onclick="exportToCSV()">📥 匯出 CSV</button>
-      <button class="export-btn" onclick="window.print()">🖨️ 列印座位表</button>
-
-      <div class="group-title">設定</div>
-      <button class="name-btn" onclick="openNameModal()">📋 學生名單</button>
-      <button class="name-btn" onclick="editClassName()">🏫 修改班級</button>
-      <button class="reset-btn span2" onclick="resetAllData()">🔄 清空重抽</button>
+    <div class="starter-picker">
+      <label>🎯 首位：</label>
+      <select id="starterSelect" onchange="setStarter(this.value)"></select>
     </div>
+
+    <button class="edit-btn" id="editToggleBtn" onclick="toggleEditMode()">✏️ 編輯號碼</button>
+    <button class="swap-btn" id="swapToggleBtn" onclick="toggleSwapMode()">🔀 手動換座位</button>
+    <button class="name-btn" id="assignToggleBtn" onclick="toggleAssignMode()">✍️ 手動指定座位</button>
+    <button class="draw-btn" id="drawBtn" onclick="startChainDraw()">🎲 抽座位</button>
+
+    <div class="current-badge" id="currentBox">目前：1 號</div>
+    <div class="next-badge" id="nextBox">下一位：? 號</div>
+
+    <button class="swap-btn" id="viewToggleBtn" onclick="toggleViewMode()">👨‍🏫 老師視角</button>
+    <button class="image-btn" onclick="exportToImage()">🖼️ 匯出 PNG 圖片</button>
+    <button class="export-btn" onclick="exportToCSV()">📥 匯出 CSV</button>
+    <button class="export-btn" onclick="window.print()">🖨️ 列印座位表</button>
+    <button class="reset-btn" onclick="resetAllData()">🔄 清空重抽</button>
+  </div>
+
+  <!-- 圖像導出抓取區域 -->
+  <div id="exportArea">
+    <div class="classroom-front">
+      <div class="blackboard">【 黑 板 / 螢 幕區 】</div>
+      <div class="podium">🏫 講 桌（教師位）</div>
+    </div>
+    <div class="grid" id="grid"></div>
+  </div>
 
   <div class="history-section">
     <h3 style="margin-top:0; color:#38bdf8;">📜 抽籤歷史連鎖紀錄</h3>
@@ -129,18 +108,6 @@
       <div style="color:#64748b;">尚未開始抽籤，紀錄將於抽籤後自動寫入...</div>
     </div>
   </div>
-  </aside>
-
-  <main class="main">
-    <!-- 圖像導出抓取區域 -->
-    <div id="exportArea">
-      <div class="classroom-front">
-        <div class="blackboard">【 黑 板 / 螢 幕區 】</div>
-        <div class="podium">🏫 講 桌（教師位）</div>
-      </div>
-      <div class="grid" id="grid"></div>
-    </div>
-  </main>
 
   <div class="modal" id="nameModal">
     <div class="modal-content">
@@ -301,12 +268,6 @@
 
     function getStudentDisplayName(id) {
       return `${id}號 ${studentNames[id - 1] || ''}`;
-    }
-
-    // 座位格上顯示：名字不拆行，空間不足時只在「號」和名字之間換行
-    function seatNameHtml(id) {
-      const esc = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      return `<span style="white-space:nowrap; font-size:0.6em; opacity:0.9; line-height:1.2;">${id}號</span><span style="white-space:nowrap">👤 ${esc(studentNames[id - 1] || '')}</span>`;
     }
 
     function initStarterSelect() {
@@ -653,7 +614,7 @@
         } else {
           let text = seat.assignedStudentId !== null ? '' : `<span style="font-size:13px; opacity:0.8;">【座位 ${seat.label}】</span><br>`;
           if (seat.assignedStudentId !== null) {
-            text += seatNameHtml(seat.assignedStudentId);
+            text += `👤 ${getStudentDisplayName(seat.assignedStudentId)}`;
           } else {
             text += `<span style="font-size:13px; opacity:0.5;">(空位)</span>`;
           }
@@ -878,18 +839,8 @@
         // 學生名稱/空位
         if (seat.assignedStudentId !== null) {
           ctx.fillStyle = '#f0fdf4';
-          const nameText = `👤 ${studentNames[seat.assignedStudentId - 1] || ''}`;
-          let nameSize = 27;
-          ctx.font = `bold ${nameSize}px sans-serif`;
-          while (ctx.measureText(nameText).width > cellW - 12 && nameSize > 14) {
-            nameSize--;
-            ctx.font = `bold ${nameSize}px sans-serif`;
-          }
-          ctx.fillText(nameText, x + cellW / 2, y + 68);
-          // 座號：在姓名上方，字體較小
-          ctx.fillStyle = '#bbf7d0';
-          ctx.font = 'bold 16px sans-serif';
-          ctx.fillText(`${seat.assignedStudentId}號`, x + cellW / 2, y + 28);
+          ctx.font = 'bold 18px sans-serif';
+          ctx.fillText(`👤 ${getStudentDisplayName(seat.assignedStudentId)}`, x + cellW / 2, nameY);
         } else {
           ctx.fillStyle = '#64748b';
           ctx.font = '16px sans-serif';
@@ -952,6 +903,7 @@
   </script>
 </body>
 </html>
+
 
 
 
